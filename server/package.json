@@ -1,0 +1,25 @@
+{
+  "name": "megagrind-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "hono": "^4.7.0",
+    "@hono/node-server": "^1.14.0",
+    "better-sqlite3": "^11.9.0",
+    "mongodb": "^6.15.0",
+    "zod": "^3.24.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.13.0"
+  }
+}
