@@ -16,6 +16,8 @@ interface EntryRow {
   end: number | null
   category: string | null
   description: string | null
+  isCorrection: number | null
+  balancedWith: string | null
 }
 
 interface SettingsRow {
@@ -48,10 +50,24 @@ export class SQLiteDatabaseAdapter implements DatabaseAdapter {
         start INTEGER NOT NULL,
         end INTEGER,
         category TEXT,
-        description TEXT
+        description TEXT,
+        isCorrection INTEGER,
+        balancedWith TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_entries_start ON entries(start);
+    `)
 
+    // Migrate pre-existing tables that lack the correction columns.
+    const cols = this.db.prepare("PRAGMA table_info(entries)").all() as { name: string }[]
+    const colNames = new Set(cols.map((c) => c.name))
+    if (!colNames.has('isCorrection')) {
+      this.db.exec('ALTER TABLE entries ADD COLUMN isCorrection INTEGER')
+    }
+    if (!colNames.has('balancedWith')) {
+      this.db.exec('ALTER TABLE entries ADD COLUMN balancedWith TEXT')
+    }
+
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS settings (
         id INTEGER PRIMARY KEY DEFAULT 1,
         data TEXT NOT NULL
@@ -82,6 +98,8 @@ export class SQLiteDatabaseAdapter implements DatabaseAdapter {
       end: row.end,
       ...(row.category ? { category: row.category as TimeEntry['category'] } : {}),
       ...(row.description ? { description: row.description } : {}),
+      ...(row.isCorrection != null ? { isCorrection: !!row.isCorrection } : {}),
+      ...(row.balancedWith != null ? { balancedWith: row.balancedWith } : {}),
     }
   }
 
@@ -107,7 +125,7 @@ export class SQLiteDatabaseAdapter implements DatabaseAdapter {
   async createEntry(entry: TimeEntry): Promise<TimeEntry> {
     const db = this.getDB()
     db.prepare(
-      'INSERT INTO entries (id, type, start, end, category, description) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO entries (id, type, start, end, category, description, isCorrection, balancedWith) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     ).run(
       entry.id,
       entry.type,
@@ -115,6 +133,8 @@ export class SQLiteDatabaseAdapter implements DatabaseAdapter {
       entry.end,
       entry.category ?? null,
       entry.description ?? null,
+      entry.isCorrection ? 1 : 0,
+      entry.balancedWith ?? null,
     )
     return entry
   }
@@ -126,13 +146,15 @@ export class SQLiteDatabaseAdapter implements DatabaseAdapter {
 
     const merged: TimeEntry = { ...existing, ...updates }
     db.prepare(
-      'UPDATE entries SET type = ?, start = ?, end = ?, category = ?, description = ? WHERE id = ?',
+      'UPDATE entries SET type = ?, start = ?, end = ?, category = ?, description = ?, isCorrection = ?, balancedWith = ? WHERE id = ?',
     ).run(
       merged.type,
       merged.start,
       merged.end,
       merged.category ?? null,
       merged.description ?? null,
+      merged.isCorrection ? 1 : 0,
+      merged.balancedWith ?? null,
       id,
     )
     return merged
@@ -149,7 +171,12 @@ export class SQLiteDatabaseAdapter implements DatabaseAdapter {
       | SettingsRow
       | undefined
     if (!row) return null
-    return JSON.parse(row.data) as Settings
+    try {
+      return JSON.parse(row.data) as Settings
+    } catch {
+      console.warn('[sqlite] Corrupted settings JSON, returning null')
+      return null
+    }
   }
 
   async updateSettings(settings: Settings): Promise<Settings> {
@@ -164,7 +191,15 @@ export class SQLiteDatabaseAdapter implements DatabaseAdapter {
   async getWeeks(): Promise<WeekData[]> {
     const db = this.getDB()
     const rows = db.prepare('SELECT * FROM weeks ORDER BY week_start DESC').all() as WeekRow[]
-    return rows.map((r) => JSON.parse(r.data) as WeekData)
+    const out: WeekData[] = []
+    for (const r of rows) {
+      try {
+        out.push(JSON.parse(r.data) as WeekData)
+      } catch {
+        console.warn(`[sqlite] Corrupted week JSON for week_start=${r.week_start}, skipping`)
+      }
+    }
+    return out
   }
 
   async getWeek(weekStart: number): Promise<WeekData | null> {
@@ -173,7 +208,12 @@ export class SQLiteDatabaseAdapter implements DatabaseAdapter {
       | WeekRow
       | undefined
     if (!row) return null
-    return JSON.parse(row.data) as WeekData
+    try {
+      return JSON.parse(row.data) as WeekData
+    } catch {
+      console.warn(`[sqlite] Corrupted week JSON for week_start=${weekStart}, returning null`)
+      return null
+    }
   }
 
   async saveWeek(data: WeekData): Promise<WeekData> {

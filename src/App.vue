@@ -13,12 +13,16 @@ import ChronosCarousel from './components/ChronosCarousel.vue'
 import { Settings, Calendar } from 'lucide-vue-next'
 
 const store = useMegagrindStore()
+store.migrateSettings()
 const showSettings = ref(false)
 const showHistory = ref(false)
 
 onMounted(() => {
-  store.migrateSettings()
+  store.resetStaleProgressCheck()
   updateTheme()
+  // Load remote entries/settings when a backend is configured.
+  // Returns early in local mode. Errors are logged inside.
+  store.initFromBackend()
 })
 
 function updateTheme() {

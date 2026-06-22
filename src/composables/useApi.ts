@@ -54,21 +54,29 @@ function setBackendMode(mode: BackendMode) {
 async function request<T>(
   path: string,
   options: RequestInit = {},
+  timeoutMs = 10000,
 ): Promise<T> {
-  const res = await fetch(`${baseUrl.value}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  })
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(`${baseUrl.value}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+      signal: controller.signal,
+    })
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(body.error || `HTTP ${res.status}`)
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error(body.error || `HTTP ${res.status}`)
+    }
+
+    return res.json() as Promise<T>
+  } finally {
+    clearTimeout(timer)
   }
-
-  return res.json() as Promise<T>
 }
 
 async function checkConnection(): Promise<boolean> {
@@ -94,7 +102,7 @@ async function switchDatabase(type: DatabaseType): Promise<DbStatus> {
 }
 
 async function getEntries(weekStart?: number): Promise<TimeEntry[]> {
-  const query = weekStart !== undefined ? `?weekStart=${weekStart}` : ''
+  const query = weekStart !== undefined ? `?weekStart=${encodeURIComponent(weekStart)}` : ''
   return request<TimeEntry[]>(`/api/entries${query}`)
 }
 

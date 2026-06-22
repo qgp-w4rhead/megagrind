@@ -5,7 +5,9 @@ import { CheckCircle, XCircle, Clock, Coffee, Bell, BellOff } from 'lucide-vue-n
 
 const store = useMegagrindStore()
 const showPrompt = ref(false)
-const timeUntilNext = ref(15 * 60 * 1000)
+const intervalMs = (store.settings.progressCheckInterval ?? 15) * 60 * 1000
+const persistedNext = store.progressCheck.nextCheckAt
+const timeUntilNext = ref(persistedNext ? Math.max(0, persistedNext - Date.now()) : intervalMs)
 const interval = ref<number | null>(null)
 
 const redCount = computed(() => store.progressCheck.redCount)
@@ -42,7 +44,9 @@ function snooze() {
 }
 
 function resetTimer() {
-  timeUntilNext.value = store.settings.progressCheckInterval * 60 * 1000
+  const ms = (store.settings.progressCheckInterval ?? 15) * 60 * 1000
+  timeUntilNext.value = ms
+  store.progressCheck.nextCheckAt = Date.now() + ms
 }
 
 function toggleFocusMode() {
@@ -75,6 +79,11 @@ function startTimer() {
     if (timeUntilNext.value <= 0) {
       showPrompt.value = true
       sendNotification()
+      // Prevent notification spam: reset timer so we don't fire every tick
+      // while the prompt is visible. The prompt handler calls resetTimer().
+      const ms = (store.settings.progressCheckInterval ?? 15) * 60 * 1000
+      timeUntilNext.value = ms
+      store.progressCheck.nextCheckAt = Date.now() + ms
     }
   }, 1000)
 }

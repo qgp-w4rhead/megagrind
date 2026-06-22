@@ -11,6 +11,8 @@ export const timeEntrySchema = z.object({
   end: z.number().nullable(),
   category: z.string().optional(),
   description: z.string().optional(),
+  isCorrection: z.boolean().optional(),
+  balancedWith: z.string().nullable().optional(),
 })
 
 export const timeEntryCreateSchema = timeEntrySchema
@@ -21,6 +23,8 @@ export const timeEntryUpdateSchema = z.object({
   end: z.number().nullable().optional(),
   category: z.string().optional(),
   description: z.string().optional(),
+  isCorrection: z.boolean().optional(),
+  balancedWith: z.string().nullable().optional(),
 })
 
 export const settingsSchema = z.object({
@@ -33,6 +37,7 @@ export const settingsSchema = z.object({
   notificationsEnabled: z.boolean(),
   soundEnabled: z.boolean(),
   focusModeDuration: z.number(),
+  progressCheckInterval: z.number().default(15),
   darkMode: z.enum(['auto', 'light', 'dark']),
 })
 

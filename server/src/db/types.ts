@@ -21,6 +21,8 @@ export interface TimeEntry {
   end: number | null
   category?: WorkCategory
   description?: string
+  isCorrection?: boolean
+  balancedWith?: string | null
 }
 
 export interface Settings {
@@ -33,7 +35,10 @@ export interface Settings {
   notificationsEnabled: boolean
   soundEnabled: boolean
   focusModeDuration: number
+  progressCheckInterval: number
   darkMode: 'auto' | 'light' | 'dark'
+  backendMode: 'local' | 'sqlite' | 'mongodb'
+  backendUrl: string
 }
 
 export interface WeekData {

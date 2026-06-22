@@ -2,12 +2,13 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useMegagrindStore } from '../stores/megagrind'
 import type { WorkCategory } from '../types'
-import { Briefcase, Play, Pause, Plus } from 'lucide-vue-next'
+import { Briefcase, Play, Pause, Plus, X } from 'lucide-vue-next'
 
 const store = useMegagrindStore()
 const showForm = ref(false)
 const category = ref<WorkCategory>(store.settings.workCategories[0] ?? 'development')
 const description = ref('')
+const manualDuration = ref('')
 const timer = ref(0)
 const timerInterval = ref<number | null>(null)
 
@@ -28,6 +29,12 @@ const dailyTotal = computed(() => {
 
 const weeklyTotal = computed(() => {
   return store.getTotalTimeForType('work')
+})
+
+const history = computed(() => {
+  const dayStart = store.getDayStart()
+  const dayEnd = store.getDayEnd()
+  return store.getEntriesByTypeAndDay('work', dayStart, dayEnd)
 })
 
 function formatTime(ms: number): string {
@@ -84,17 +91,37 @@ function startSession() {
 }
 
 function addManualEntry() {
-  if (description.value.trim()) {
-    store.addManualEntry({
-      type: 'work',
-      start: Date.now() - 3600000,
-      end: Date.now(),
-      category: category.value,
-      description: description.value,
-    })
-    description.value = ''
-    showForm.value = false
+  if (!description.value.trim()) return
+  const durationMs = parseFloat(manualDuration.value) * 60 * 1000
+  if (isNaN(durationMs) || durationMs === 0) return
+
+  const now = Date.now()
+  store.addManualEntry({
+    type: 'work',
+    start: now,
+    end: now + durationMs,
+    category: category.value,
+    description: description.value,
+  })
+  description.value = ''
+  manualDuration.value = ''
+  showForm.value = false
+}
+
+function formatEntryTime(entry: any): string {
+  const date = new Date(entry.start)
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function getEntryCategoryLabel(entry: any): string | null {
+  if (entry.category) {
+    return entry.category.charAt(0).toUpperCase() + entry.category.slice(1)
   }
+  return null
+}
+
+function deleteEntry(id: string) {
+  store.deleteEntry(id)
 }
 
 onMounted(() => {
@@ -159,6 +186,24 @@ onUnmounted(() => {
         <Pause class="btn-icon" />
         Stop Session
       </button>
+    </div>
+
+    <div v-if="history.length > 0" class="recent-events">
+      <div class="recent-events-list">
+        <div v-for="entry in history" :key="entry.id" class="recent-event-item">
+          <div class="recent-event-left">
+            <span class="recent-event-time">{{ formatEntryTime(entry) }}</span>
+            <span v-if="getEntryCategoryLabel(entry)" class="recent-event-category">{{ getEntryCategoryLabel(entry) }}</span>
+            <span v-if="entry.description" class="recent-event-reason">{{ entry.description }}</span>
+          </div>
+          <div class="recent-event-right">
+            <span class="recent-event-duration">{{ formatTime(entry.end! - entry.start) }}</span>
+            <button class="recent-event-remove" @click="deleteEntry(entry.id)" title="Remove">
+              <X class="recent-event-x" />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -392,5 +437,103 @@ onUnmounted(() => {
 
 .btn-primary:hover {
   background: var(--accent-purple-hover);
+}
+
+.recent-events {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.recent-events-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.recent-event-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  gap: 0.5rem;
+}
+
+.recent-event-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.recent-event-time {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.recent-event-category {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--accent-purple);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(167, 139, 250, 0.15);
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.recent-event-reason {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-event-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.recent-event-duration {
+  font-size: 0.75rem;
+  color: var(--accent-green);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.recent-event-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.125rem;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.recent-event-remove:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.recent-event-x {
+  width: 14px;
+  height: 14px;
 }
 </style>

@@ -14,74 +14,92 @@ function generateId(): string {
 export const useMegagrindStore = defineStore('megagrind', () => {
   const entries = ref<TimeEntry[]>([])
   const settings = ref<Settings>({ ...DEFAULT_SETTINGS })
-  const activeSession = ref<{
-    type: TrackerType | null
-    startTime: number | null
-    description: string | null
-    category: WorkCategory | null
-  }>({
-    type: null,
-    startTime: null,
-    description: null,
-    category: null,
-  })
   const progressCheck = ref({
     lastCheck: null as number | null,
     redCount: 0,
     snoozeUntil: null as number | null,
     focusModeUntil: null as number | null,
+    nextCheckAt: null as number | null,
   })
-  const idleStartTime = ref<number | null>(null)
   const api = useApi()
 
+  // Active session and idle are derived from entries: an entry with end=null
+  // is the currently running session (or idle). This makes them persistent
+  // across page reloads since entries are persisted.
+  const activeSession = computed<{
+    type: TrackerType | null
+    startTime: number | null
+    description: string | null
+    category: WorkCategory | null
+  }>(() => {
+    const entry = entries.value.find(e => e.end === null && e.type !== 'idle')
+    if (entry) {
+      return {
+        type: entry.type,
+        startTime: entry.start,
+        description: entry.description ?? null,
+        category: entry.category ?? null,
+      }
+    }
+    return { type: null, startTime: null, description: null, category: null }
+  })
+  const idleStartTime = computed<number | null>(() => {
+    const entry = entries.value.find(e => e.end === null && e.type === 'idle')
+    return entry ? entry.start : null
+  })
   const isRunning = computed(() => activeSession.value.type !== null)
   const currentSessionType = computed(() => activeSession.value.type)
   const currentSessionStartTime = computed(() => activeSession.value.startTime)
 
   function startSession(type: TrackerType, description?: string, category?: WorkCategory) {
-    // Save idle time entry if transitioning from idle
-    if (idleStartTime.value) {
-      entries.value.push({
-        id: generateId(),
-        type: 'idle',
-        start: idleStartTime.value,
-        end: Date.now(),
-      })
-      idleStartTime.value = null
+    // Close any open entry (idle or active session) by setting its end time
+    const openEntry = entries.value.find(e => e.end === null)
+    if (openEntry) {
+      const idx = entries.value.indexOf(openEntry)
+      const now = Date.now()
+      entries.value[idx] = { ...openEntry, end: now }
+      syncEntryUpdateToBackend(openEntry.id, { end: now })
     }
 
-    activeSession.value = {
+    // Create a new open entry (end=null) for the new session
+    const newEntry: TimeEntry = {
+      id: generateId(),
       type,
-      startTime: Date.now(),
-      description: description || null,
-      category: category || null,
+      start: Date.now(),
+      end: null,
+      description: description || undefined,
+      category: category || undefined,
     }
+    entries.value.push(newEntry)
+    syncEntryToBackend(newEntry)
   }
 
   function stopSession() {
-    if (!activeSession.value.type || !activeSession.value.startTime) return
+    const openEntry = entries.value.find(e => e.end === null && e.type !== 'idle')
+    if (!openEntry) return
 
-    const entry: TimeEntry = {
+    // Close the active session entry by setting its end time
+    const idx = entries.value.indexOf(openEntry)
+    const now = Date.now()
+    entries.value[idx] = { ...openEntry, end: now }
+    syncEntryUpdateToBackend(openEntry.id, { end: now })
+
+    // Start tracking idle time with a new open idle entry
+    const idleEntry: TimeEntry = {
       id: generateId(),
-      type: activeSession.value.type,
-      start: activeSession.value.startTime,
-      end: Date.now(),
-      category: activeSession.value.category || undefined,
-      description: activeSession.value.description || undefined,
+      type: 'idle',
+      start: Date.now(),
+      end: null,
     }
-
-    entries.value.push(entry)
-    activeSession.value = { type: null, startTime: null, description: null, category: null }
-
-    // Start tracking idle time
-    idleStartTime.value = Date.now()
+    entries.value.push(idleEntry)
+    syncEntryToBackend(idleEntry)
 
     // Reset progress check when session ends
     progressCheck.value.redCount = 0
     progressCheck.value.lastCheck = null
     progressCheck.value.snoozeUntil = null
-
-    syncEntryToBackend(entry)
+    progressCheck.value.focusModeUntil = null
+    progressCheck.value.nextCheckAt = null
   }
 
   async function syncEntryToBackend(entry: TimeEntry) {
@@ -149,6 +167,43 @@ export const useMegagrindStore = defineStore('megagrind', () => {
       ...entry,
       id: generateId(),
     }
+
+    // All manual entries are corrections (adjustments to tracked time)
+    const isNegativeCorrection = entry.end !== null && entry.end < entry.start
+    fullEntry.isCorrection = true
+
+    if (entry.end !== null) {
+      // Check for opposite correction within 3 minutes to balance
+      const threeMinutesAgo = Date.now() - 3 * 60 * 1000
+      const correctionValue = Math.abs(entry.end - entry.start)
+      const recentCorrections = entries.value.filter(e =>
+        e.isCorrection &&
+        e.end !== null &&
+        !e.balancedWith &&
+        e.start >= threeMinutesAgo &&
+        Math.abs(e.end - e.start) === correctionValue
+      )
+
+      if (recentCorrections.length > 0) {
+        // Check if there's an opposite correction to balance
+        const lastCorrection = recentCorrections[recentCorrections.length - 1]
+        if (lastCorrection && lastCorrection.end !== null) {
+          const lastIsNegative = lastCorrection.end < lastCorrection.start
+
+          // If this is opposite sign, they balance each other
+          if (lastIsNegative !== isNegativeCorrection) {
+            // Link them together
+            fullEntry.balancedWith = lastCorrection.id
+            const lastCorrectionIndex = entries.value.findIndex(e => e.id === lastCorrection.id)
+            if (lastCorrectionIndex !== -1 && entries.value[lastCorrectionIndex]) {
+              entries.value[lastCorrectionIndex].balancedWith = fullEntry.id
+              syncEntryUpdateToBackend(lastCorrection.id, { balancedWith: fullEntry.id })
+            }
+          }
+        }
+      }
+    }
+
     entries.value.push(fullEntry)
     syncEntryToBackend(fullEntry)
   }
@@ -175,7 +230,7 @@ export const useMegagrindStore = defineStore('megagrind', () => {
 
   function getEntriesByTypeAndDay(type: TrackerType, dayStart: number, dayEnd: number): TimeEntry[] {
     return entries.value.filter(
-      (e) => e.type === type && e.start >= dayStart && e.start < dayEnd,
+      (e) => e.type === type && e.end !== null && e.start >= dayStart && e.start < dayEnd,
     )
   }
 
@@ -192,18 +247,51 @@ export const useMegagrindStore = defineStore('megagrind', () => {
   }
 
   function getCurrentSessionDuration(): number {
-    if (!activeSession.value.startTime) return 0
-    return Date.now() - activeSession.value.startTime
+    const entry = entries.value.find(e => e.end === null && e.type !== 'idle')
+    if (!entry) return 0
+    return Date.now() - entry.start
   }
 
   function getCurrentIdleDuration(): number {
-    if (!idleStartTime.value) return 0
-    return Date.now() - idleStartTime.value
+    const entry = entries.value.find(e => e.end === null && e.type === 'idle')
+    if (!entry) return 0
+    return Date.now() - entry.start
   }
 
   function initIdle() {
-    if (!isRunning.value && !idleStartTime.value) {
-      idleStartTime.value = Date.now()
+    // If nothing is running and there's no open idle entry, create one
+    if (!isRunning.value && idleStartTime.value === null) {
+      const idleEntry: TimeEntry = {
+        id: generateId(),
+        type: 'idle',
+        start: Date.now(),
+        end: null,
+      }
+      entries.value.push(idleEntry)
+      syncEntryToBackend(idleEntry)
+    }
+  }
+
+  function resetStaleProgressCheck() {
+    // Clear focus mode if its end time has passed (tab was closed).
+    if (progressCheck.value.focusModeUntil !== null &&
+        progressCheck.value.focusModeUntil <= Date.now()) {
+      progressCheck.value.focusModeUntil = null
+    }
+    // Clear snooze if it has expired (tab was closed).
+    if (progressCheck.value.snoozeUntil !== null &&
+        progressCheck.value.snoozeUntil <= Date.now()) {
+      progressCheck.value.snoozeUntil = null
+    }
+    // Reset redCount if the last check was on a previous day.
+    if (progressCheck.value.lastCheck !== null) {
+      const last = new Date(progressCheck.value.lastCheck)
+      const today = new Date()
+      if (last.getFullYear() !== today.getFullYear() ||
+          last.getMonth() !== today.getMonth() ||
+          last.getDate() !== today.getDate()) {
+        progressCheck.value.redCount = 0
+      }
     }
   }
 
@@ -242,6 +330,33 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     if (!settings.value.customChronos) {
       settings.value.customChronos = []
     }
+    if (settings.value.progressCheckInterval === undefined) {
+      settings.value.progressCheckInterval = DEFAULT_SETTINGS.progressCheckInterval
+    }
+    if (settings.value.focusModeDuration === undefined) {
+      settings.value.focusModeDuration = DEFAULT_SETTINGS.focusModeDuration
+    }
+    if (settings.value.backendMode === undefined) {
+      settings.value.backendMode = DEFAULT_SETTINGS.backendMode
+    }
+    if (settings.value.backendUrl === undefined) {
+      settings.value.backendUrl = DEFAULT_SETTINGS.backendUrl
+    }
+    if (settings.value.darkMode === undefined) {
+      settings.value.darkMode = DEFAULT_SETTINGS.darkMode
+    }
+    if (settings.value.notificationsEnabled === undefined) {
+      settings.value.notificationsEnabled = DEFAULT_SETTINGS.notificationsEnabled
+    }
+    if (settings.value.soundEnabled === undefined) {
+      settings.value.soundEnabled = DEFAULT_SETTINGS.soundEnabled
+    }
+    if (settings.value.weekRolloverDay === undefined) {
+      settings.value.weekRolloverDay = DEFAULT_SETTINGS.weekRolloverDay
+    }
+    if (settings.value.weekRolloverHour === undefined) {
+      settings.value.weekRolloverHour = DEFAULT_SETTINGS.weekRolloverHour
+    }
     if (!('chores' in settings.value.weeklyAllocations)) {
       const allocs = settings.value.weeklyAllocations as any
       const legacy = (allocs.laundry ?? 0) + (allocs.dishes ?? 0)
@@ -275,6 +390,12 @@ export const useMegagrindStore = defineStore('megagrind', () => {
   function importWeekData(data: WeekData) {
     entries.value = data.entries
     settings.value = data.settings
+    // Push imported data to backend so it survives reload.
+    // Existing entries on the backend will fail silently (caught in sync fn).
+    for (const entry of data.entries) {
+      syncEntryToBackend(entry)
+    }
+    syncSettingsToBackend(settings.value)
   }
 
   function getWeekStart(): number {
@@ -320,6 +441,7 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     getCurrentSessionDuration,
     getCurrentIdleDuration,
     initIdle,
+    resetStaleProgressCheck,
     recordProgressCheck,
     resetRedCount,
     snoozeProgressCheck,
@@ -338,5 +460,6 @@ export const useMegagrindStore = defineStore('megagrind', () => {
   persist: {
     key: 'megagrind-store',
     storage: localStorage,
+    pick: ['entries', 'settings', 'progressCheck'],
   },
 })

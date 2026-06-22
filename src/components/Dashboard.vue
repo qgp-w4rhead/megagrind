@@ -41,12 +41,45 @@ const remainingWorkHours = computed(() => {
 
 const progressPercentage = computed(() => {
   const workAllocation = 168 - totalAllocated.value
+  if (workAllocation <= 0) return '0.0'
   const total = store.getTotalTimeForType('work')
   const percentage = (total / (60 * 60 * 1000)) / workAllocation * 100
   return Math.min(100, Math.max(0, percentage)).toFixed(1)
 })
 
 const redCount = computed(() => store.progressCheck.redCount)
+
+const timeCorrectionBalance = computed(() => {
+  const threeMinutesAgo = Date.now() - 3 * 60 * 1000
+  const recentCorrections = store.entries.filter(e =>
+    e.isCorrection &&
+    e.end !== null &&
+    e.start >= threeMinutesAgo
+  )
+  
+  // Group balanced corrections together
+  const groups: Array<{ corrections: typeof recentCorrections }> = []
+  const processedIds = new Set<string>()
+  
+  for (const correction of recentCorrections) {
+    if (processedIds.has(correction.id)) continue
+    
+    if (correction.balancedWith) {
+      const paired = recentCorrections.find(e => e.id === correction.balancedWith)
+      if (paired) {
+        groups.push({ corrections: [correction, paired] })
+        processedIds.add(correction.id)
+        processedIds.add(paired.id)
+        continue
+      }
+    }
+    
+    groups.push({ corrections: [correction] })
+    processedIds.add(correction.id)
+  }
+  
+  return groups
+})
 
 function formatHours(ms: number): string {
   return (ms / (60 * 60 * 1000)).toFixed(1)
@@ -143,6 +176,22 @@ function getBarColor(total: number, allowance: number): string {
         <h4>Bill Gates Target</h4>
         <span class="stat-number">100h</span>
         <span class="stat-desc">Weekly goal</span>
+      </div>
+    </div>
+
+    <div v-if="timeCorrectionBalance.length > 0" class="corrections-section">
+      <h3>Time Correction Balance</h3>
+      <div class="corrections-list">
+        <div v-for="(group, groupIndex) in timeCorrectionBalance" :key="`group-${groupIndex}`" class="correction-group">
+          <div v-for="correction in group.corrections" :key="correction.id" class="correction-item">
+            <span class="correction-description">
+              {{ correction.end && correction.end < correction.start ? '-' : '+' }}{{ Math.abs((correction.end || 0) - correction.start) / 60000 }}min
+              {{ correction.description ? ` - ${correction.description}` : '' }}
+            </span>
+            <span class="correction-time">{{ new Date(correction.start).toLocaleTimeString() }}</span>
+          </div>
+          <div v-if="group.corrections.length > 1" class="balance-indicator">↔ Balanced</div>
+        </div>
       </div>
     </div>
   </div>
@@ -367,5 +416,62 @@ function getBarColor(total: number, allowance: number): string {
 .stat-desc {
   font-size: 0.75rem;
   color: var(--text-secondary);
+}
+
+.corrections-section {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.corrections-section h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--accent-purple);
+}
+
+.corrections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.correction-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.correction-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+}
+
+.balance-indicator {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--accent-green);
+  font-weight: 600;
+  padding-top: 0.25rem;
+  border-top: 1px dashed var(--border-color);
+}
+
+.correction-description {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.correction-time {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 </style>

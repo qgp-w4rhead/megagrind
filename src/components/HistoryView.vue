@@ -48,7 +48,7 @@ const selectedDayEntries = computed(() => {
   if (!selectedDate.value) return []
   const dayStart = new Date(selectedDate.value).setHours(0, 0, 0, 0)
   const dayEnd = new Date(selectedDate.value).setHours(23, 59, 59, 999)
-  return store.entries.filter((e) => e.start >= dayStart && e.start <= dayEnd)
+  return store.entries.filter((e) => e.end !== null && e.start >= dayStart && e.start <= dayEnd)
 })
 
 function previousMonth() {
@@ -94,8 +94,14 @@ function getDayTotal(date: Date): number {
   const dayStart = new Date(date).setHours(0, 0, 0, 0)
   const dayEnd = new Date(date).setHours(23, 59, 59, 999)
   return store.entries
-    .filter((e) => e.start >= dayStart && e.start <= dayEnd && e.end)
+    .filter((e) => e.end !== null && e.start >= dayStart && e.start <= dayEnd)
     .reduce((sum, e) => sum + (e.end! - e.start), 0)
+}
+
+function deleteEntry(entryId: string) {
+  if (confirm('Are you sure you want to delete this entry?')) {
+    store.deleteEntry(entryId)
+  }
 }
 </script>
 
@@ -173,7 +179,12 @@ function getDayTotal(date: Date): number {
                 {{ entry.description }}
               </div>
             </div>
-            <div class="entry-duration">{{ formatTime(entry.end! - entry.start) }}</div>
+            <div class="entry-right">
+              <div class="entry-duration">{{ formatTime(entry.end! - entry.start) }}</div>
+              <button class="delete-entry-btn" @click="(e) => deleteEntry(entry.id, e)" title="Delete entry (hold Shift to skip confirmation)">
+                <X class="delete-icon" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -445,13 +456,41 @@ function getDayTotal(date: Date): number {
   line-height: 1.4;
 }
 
+.entry-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .entry-duration {
   font-size: 0.875rem;
   color: var(--accent-green);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  margin-top: 0.125rem;
+}
+
+.delete-entry-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  background: transparent;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.delete-entry-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.delete-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .day-summary {

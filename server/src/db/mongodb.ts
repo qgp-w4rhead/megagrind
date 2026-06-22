@@ -31,6 +31,7 @@ export class MongoDBDatabaseAdapter implements DatabaseAdapter {
     this.weeksCol = db.collection<{ weekStart: number; data: WeekData }>('weeks')
 
     await this.entriesCol.createIndex({ start: 1 })
+    await this.entriesCol.createIndex({ id: 1 }, { unique: true })
     await this.weeksCol.createIndex({ weekStart: 1 }, { unique: true })
   }
 

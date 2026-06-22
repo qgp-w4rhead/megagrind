@@ -140,7 +140,15 @@ async function switchDatabase(type: DatabaseType) {
 }
 
 function saveSettings() {
+  const prevMode = store.settings.backendMode
+  const prevUrl = store.settings.backendUrl
   store.updateSettings(localSettings.value)
+  // If backend config changed, reinitialize from backend so changes take effect
+  // without requiring a page reload.
+  if (store.settings.backendMode !== 'local' &&
+      (store.settings.backendMode !== prevMode || store.settings.backendUrl !== prevUrl)) {
+    store.initFromBackend()
+  }
   emit('close')
 }
 
@@ -166,6 +174,14 @@ function importData() {
       reader.onload = (e) => {
         try {
           const data = JSON.parse(e.target?.result as string)
+          // Validate minimal shape before importing
+          if (!data || typeof data !== 'object' ||
+              !Array.isArray(data.entries) ||
+              !data.settings || typeof data.settings !== 'object' ||
+              typeof data.weekStart !== 'number') {
+            alert('Invalid file format: missing required fields')
+            return
+          }
           store.importWeekData(data)
           localSettings.value = { ...store.settings }
           emit('close')
@@ -181,7 +197,11 @@ function importData() {
 
 function clearAllData() {
   if (confirm('Are you sure you want to clear all data? This cannot be undone.')) {
-    store.updateSettings({ ...store.settings })
+    // Delete all entries (syncs each deletion to backend)
+    const ids = store.entries.map((e) => e.id)
+    for (const id of ids) {
+      store.deleteEntry(id)
+    }
     emit('close')
   }
 }
@@ -468,7 +488,7 @@ function clearAllData() {
                   type="radio"
                   value="local"
                 />
-                <span>Local (Browser)</span>
+                <span>Local (Simplest)</span>
               </label>
               <label class="mode-option">
                 <input
@@ -476,7 +496,7 @@ function clearAllData() {
                   type="radio"
                   value="sqlite"
                 />
-                <span>SQLite (Server)</span>
+                <span>SQLite (Turnkey)</span>
               </label>
               <label class="mode-option">
                 <input
@@ -484,7 +504,7 @@ function clearAllData() {
                   type="radio"
                   value="mongodb"
                 />
-                <span>MongoDB (Server)</span>
+                <span>MongoDB (Requires Setup)</span>
               </label>
             </div>
           </div>

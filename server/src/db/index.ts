@@ -38,7 +38,10 @@ class DatabaseManager {
 
   async init(): Promise<void> {
     if (this.adapter) return
-    const type = (process.env.DB_TYPE as DatabaseType) || 'sqlite'
+    const raw = process.env.DB_TYPE
+    const type: DatabaseType = raw && this.getAvailableTypes().includes(raw as DatabaseType)
+      ? (raw as DatabaseType)
+      : 'sqlite'
     await this.switch(type)
   }
 

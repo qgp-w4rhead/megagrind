@@ -11,6 +11,8 @@ export interface TimeEntry {
   end: number | null
   category?: WorkCategory
   description?: string
+  isCorrection?: boolean
+  balancedWith?: string | null
 }
 
 export interface WeekData {

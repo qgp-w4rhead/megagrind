@@ -18,6 +18,7 @@ const manualStartTime = ref('')
 const manualEndTime = ref('')
 const manualDuration = ref('')
 const sessionDescription = ref('')
+const manualDescription = ref('')
 
 const isRunning = computed(() => store.currentSessionType === props.type)
 const duration = computed(() => {
@@ -125,24 +126,42 @@ function deleteEntry(id: string) {
 
 function addManualEntry() {
   const durationMs = parseFloat(manualDuration.value) * 60 * 1000
-  if (isNaN(durationMs) || durationMs <= 0) return
+  if (isNaN(durationMs) || durationMs === 0) return
 
-  const endTime = Date.now()
-  const startTime = endTime - durationMs
+  const now = Date.now()
+  
+  // Both start and end should be at current time
+  // The duration is stored as the difference (end - start)
+  // Negative duration means end < start (correction)
+  const startTime = now
+  const endTime = now + durationMs
+
+  const description = props.type === 'unexpected' && manualDescription.value.trim()
+    ? manualDescription.value.trim()
+    : undefined
 
   store.addManualEntry({
     type: props.type,
     start: startTime,
     end: endTime,
+    description,
   })
 
   manualDuration.value = ''
+  manualDescription.value = ''
   showManualEntry.value = false
 }
 
 function formatEntryTime(entry: any): string {
   const date = new Date(entry.start)
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function getEntryCategoryLabel(entry: any): string | null {
+  if (entry.category) {
+    return entry.category.charAt(0).toUpperCase() + entry.category.slice(1)
+  }
+  return null
 }
 
 onMounted(() => {
@@ -214,6 +233,24 @@ onUnmounted(() => {
       {{ isRunning ? 'Stop' : 'Start' }}
     </button>
 
+    <div v-if="history.length > 0" class="recent-events">
+      <div class="recent-events-list">
+        <div v-for="entry in history" :key="entry.id" class="recent-event-item">
+          <div class="recent-event-left">
+            <span class="recent-event-time">{{ formatEntryTime(entry) }}</span>
+            <span v-if="getEntryCategoryLabel(entry)" class="recent-event-category">{{ getEntryCategoryLabel(entry) }}</span>
+            <span v-if="entry.description" class="recent-event-reason">{{ entry.description }}</span>
+          </div>
+          <div class="recent-event-right">
+            <span class="recent-event-duration">{{ formatTime(entry.end! - entry.start) }}</span>
+            <button class="recent-event-remove" @click="deleteEntry(entry.id)" title="Remove">
+              <X class="recent-event-x" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showHistory" class="history-panel">
       <div class="history-header">
         <h4>Today's History</h4>
@@ -244,13 +281,19 @@ onUnmounted(() => {
       </div>
       <div class="manual-entry-form">
         <div class="form-group">
-          <label>Duration (minutes)</label>
+          <label>DURATION / REASON</label>
           <input
             v-model.number="manualDuration"
             type="number"
-            min="1"
             step="1"
-            placeholder="e.g., 30"
+            placeholder="e.g., 30 or -15"
+          />
+        </div>
+        <div v-if="type === 'unexpected'" class="form-group">
+          <input
+            v-model="manualDescription"
+            type="text"
+            placeholder="What came up?"
           />
         </div>
         <div class="form-actions">
@@ -570,6 +613,105 @@ onUnmounted(() => {
 }
 
 .delete-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.recent-events {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.recent-events-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  max-height: 120px;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.recent-event-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  gap: 0.5rem;
+}
+
+.recent-event-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.recent-event-time {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.recent-event-category {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--accent-purple);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(167, 139, 250, 0.15);
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.recent-event-reason {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-event-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.recent-event-duration {
+  font-size: 0.75rem;
+  color: var(--accent-green);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.recent-event-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.125rem;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.recent-event-remove:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.recent-event-x {
   width: 14px;
   height: 14px;
 }
