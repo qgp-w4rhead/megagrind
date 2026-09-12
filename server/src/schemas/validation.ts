@@ -39,15 +39,19 @@ export const settingsSchema = z.object({
   focusModeDuration: z.number(),
   progressCheckInterval: z.number().default(15),
   darkMode: z.enum(['auto', 'light', 'dark']),
+  backendMode: z.enum(['sqlite']),
+  backendUrl: z.string(),
+  idleTimeEnabled: z.boolean(),
+  progressCheckEnabled: z.boolean(),
 })
 
-export const weekDataSchema = z.object({
-  version: z.number(),
-  weekStart: z.number(),
-  entries: z.array(timeEntrySchema),
+export const bulkEntriesSchema = z.array(timeEntrySchema)
+
+export const stateSchema = z.object({
   settings: settingsSchema,
+  timeEntries: bulkEntriesSchema,
 })
 
 export const dbSwitchSchema = z.object({
-  type: z.enum(['sqlite', 'mongodb']),
+  type: z.literal('sqlite'),
 })

@@ -1,22 +1,14 @@
 import 'dotenv/config'
 import { SQLiteDatabaseAdapter } from './sqlite.js'
-import { MongoDBDatabaseAdapter } from './mongodb.js'
 import type { DatabaseAdapter, DatabaseType } from './types.js'
 
 const DEFAULT_SQLITE_PATH = './data/megagrind.db'
-const DEFAULT_MONGODB_URI = 'mongodb://localhost:27017'
-const DEFAULT_MONGODB_DB = 'megagrind'
 
 function createAdapter(type: DatabaseType): DatabaseAdapter {
   switch (type) {
     case 'sqlite': {
       const path = process.env.SQLITE_PATH || DEFAULT_SQLITE_PATH
       return new SQLiteDatabaseAdapter(path)
-    }
-    case 'mongodb': {
-      const uri = process.env.MONGODB_URI || DEFAULT_MONGODB_URI
-      const dbName = process.env.MONGODB_DB || DEFAULT_MONGODB_DB
-      return new MongoDBDatabaseAdapter(uri, dbName)
     }
     default:
       throw new Error(`Unknown database type: ${type}`)
@@ -38,11 +30,7 @@ class DatabaseManager {
 
   async init(): Promise<void> {
     if (this.adapter) return
-    const raw = process.env.DB_TYPE
-    const type: DatabaseType = raw && this.getAvailableTypes().includes(raw as DatabaseType)
-      ? (raw as DatabaseType)
-      : 'sqlite'
-    await this.switch(type)
+    await this.switch('sqlite')
   }
 
   async switch(type: DatabaseType): Promise<void> {
@@ -56,8 +44,13 @@ class DatabaseManager {
     console.log(`[DatabaseManager] Switched to ${type}`)
   }
 
+  setAdapter(adapter: DatabaseAdapter): void {
+    this.adapter = adapter
+    this.currentType = adapter.type
+  }
+
   getAvailableTypes(): DatabaseType[] {
-    return ['sqlite', 'mongodb']
+    return ['sqlite']
   }
 }
 

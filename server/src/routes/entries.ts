@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { dbManager } from '../db/index.js'
 import {
+  bulkEntriesSchema,
   timeEntryCreateSchema,
   timeEntryUpdateSchema,
 } from '../schemas/validation.js'
@@ -36,6 +37,32 @@ entries.post('/', async (c) => {
   try {
     const entry = await dbManager.getAdapter().createEntry(parsed.data)
     return c.json(entry, 201)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+entries.post('/bulk', async (c) => {
+  const body = await c.req.json()
+  const parsed = bulkEntriesSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400)
+  try {
+    await dbManager.getAdapter().bulkUpsertEntries(parsed.data)
+    return c.json({ success: true, count: parsed.data.length })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+entries.post('/bulk', async (c) => {
+  const body = await c.req.json()
+  const parsed = bulkEntriesSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400)
+  try {
+    await dbManager.getAdapter().bulkUpsertEntries(parsed.data)
+    return c.json({ success: true, count: parsed.data.length })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return c.json({ error: message }, 500)

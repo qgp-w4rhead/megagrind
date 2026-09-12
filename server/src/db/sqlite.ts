@@ -6,7 +6,6 @@ import type {
   DatabaseType,
   Settings,
   TimeEntry,
-  WeekData,
 } from './types.js'
 
 interface EntryRow {
@@ -21,11 +20,6 @@ interface EntryRow {
 }
 
 interface SettingsRow {
-  data: string
-}
-
-interface WeekRow {
-  week_start: number
   data: string
 }
 
@@ -73,9 +67,9 @@ export class SQLiteDatabaseAdapter implements DatabaseAdapter {
         data TEXT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS weeks (
-        week_start INTEGER PRIMARY KEY,
-        data TEXT NOT NULL
+      CREATE TABLE IF NOT EXISTS kv (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
       );
     `)
   }
@@ -98,7 +92,7 @@ export class SQLiteDatabaseAdapter implements DatabaseAdapter {
       end: row.end,
       ...(row.category ? { category: row.category as TimeEntry['category'] } : {}),
       ...(row.description ? { description: row.description } : {}),
-      ...(row.isCorrection != null ? { isCorrection: !!row.isCorrection } : {}),
+      ...(row.isCorrection ? { isCorrection: true } : {}),
       ...(row.balancedWith != null ? { balancedWith: row.balancedWith } : {}),
     }
   }
@@ -165,6 +159,37 @@ export class SQLiteDatabaseAdapter implements DatabaseAdapter {
     db.prepare('DELETE FROM entries WHERE id = ?').run(id)
   }
 
+  async bulkUpsertEntries(entries: TimeEntry[]): Promise<void> {
+    const db = this.getDB()
+    const stmt = db.prepare(
+      `INSERT INTO entries (id, type, start, end, category, description, isCorrection, balancedWith)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         type = excluded.type,
+         start = excluded.start,
+         end = excluded.end,
+         category = excluded.category,
+         description = excluded.description,
+         isCorrection = excluded.isCorrection,
+         balancedWith = excluded.balancedWith`,
+    )
+    const runAll = db.transaction((rows: TimeEntry[]) => {
+      for (const e of rows) {
+        stmt.run(
+          e.id,
+          e.type,
+          e.start,
+          e.end,
+          e.category ?? null,
+          e.description ?? null,
+          e.isCorrection ? 1 : 0,
+          e.balancedWith ?? null,
+        )
+      }
+    })
+    runAll(entries)
+  }
+
   async getSettings(): Promise<Settings | null> {
     const db = this.getDB()
     const row = db.prepare('SELECT data FROM settings WHERE id = 1').get() as
@@ -188,40 +213,24 @@ export class SQLiteDatabaseAdapter implements DatabaseAdapter {
     return settings
   }
 
-  async getWeeks(): Promise<WeekData[]> {
+  async getState(key: string): Promise<unknown> {
     const db = this.getDB()
-    const rows = db.prepare('SELECT * FROM weeks ORDER BY week_start DESC').all() as WeekRow[]
-    const out: WeekData[] = []
-    for (const r of rows) {
-      try {
-        out.push(JSON.parse(r.data) as WeekData)
-      } catch {
-        console.warn(`[sqlite] Corrupted week JSON for week_start=${r.week_start}, skipping`)
-      }
-    }
-    return out
-  }
-
-  async getWeek(weekStart: number): Promise<WeekData | null> {
-    const db = this.getDB()
-    const row = db.prepare('SELECT * FROM weeks WHERE week_start = ?').get(weekStart) as
-      | WeekRow
+    const row = db.prepare('SELECT value FROM kv WHERE key = ?').get(key) as
+      | { value: string }
       | undefined
     if (!row) return null
     try {
-      return JSON.parse(row.data) as WeekData
+      return JSON.parse(row.value)
     } catch {
-      console.warn(`[sqlite] Corrupted week JSON for week_start=${weekStart}, returning null`)
+      console.warn(`[sqlite] Corrupted state JSON for key=${key}, returning null`)
       return null
     }
   }
 
-  async saveWeek(data: WeekData): Promise<WeekData> {
+  async setState(key: string, value: unknown): Promise<void> {
     const db = this.getDB()
-    const json = JSON.stringify(data)
     db.prepare(
-      'INSERT INTO weeks (week_start, data) VALUES (?, ?) ON CONFLICT(week_start) DO UPDATE SET data = excluded.data',
-    ).run(data.weekStart, json)
-    return data
+      'INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    ).run(key, JSON.stringify(value))
   }
 }

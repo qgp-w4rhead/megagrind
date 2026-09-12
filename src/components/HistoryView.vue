@@ -1,40 +1,60 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useMegagrindStore } from '../stores/megagrind'
 import { TRACKER_LABELS } from '../types'
+import type { TimeEntry } from '../types'
+import { getTrackerConfig } from '../config/trackers'
 import { Calendar, ChevronLeft, ChevronRight, X } from 'lucide-vue-next'
 
-const props = defineProps<{
-  show: boolean
-}>()
-
-const emit = defineEmits<{
-  close: []
-}>()
+const router = useRouter()
+function close() {
+  router.push('/')
+}
 
 const store = useMegagrindStore()
 const currentMonth = ref(new Date())
 
-const daysInMonth = computed(() => {
+const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// Weekday column headers rotated so the first column is the rollover day.
+const weekHeaders = computed(() => {
+  const start = store.settings.weekRolloverDay
+  return [...DAY_HEADERS.slice(start), ...DAY_HEADERS.slice(0, start)]
+})
+
+interface DayCell {
+  day: number | null
+  date: Date | null
+  types: string[]
+  totalMs: number
+}
+
+const daysInMonth = computed<DayCell[]>(() => {
   const year = currentMonth.value.getFullYear()
   const month = currentMonth.value.getMonth()
   const firstDay = new Date(year, month, 1)
   const lastDay = new Date(year, month + 1, 0)
-  const startDay = firstDay.getDay()
   const totalDays = lastDay.getDate()
-  
-  const days = []
+  // Leading blanks so week rows start on the configured rollover day.
+  const startDay =
+    (firstDay.getDay() - store.settings.weekRolloverDay + 7) % 7
+
+  const days: DayCell[] = []
   for (let i = 0; i < startDay; i++) {
-    days.push({ day: null, hasData: false })
+    days.push({ day: null, date: null, types: [], totalMs: 0 })
   }
   for (let i = 1; i <= totalDays; i++) {
     const date = new Date(year, month, i)
     const dayStart = new Date(year, month, i).setHours(0, 0, 0, 0)
     const dayEnd = new Date(year, month, i).setHours(23, 59, 59, 999)
-    const hasWorkData = store.entries.some(
-      (e) => e.type === 'work' && e.start >= dayStart && e.start <= dayEnd
+    // Aggregate every tracked type — not just work.
+    const dayEntries = store.entries.filter(
+      (e) => e.end !== null && e.start >= dayStart && e.start <= dayEnd,
     )
-    days.push({ day: i, date, hasData: hasWorkData })
+    const types = [...new Set(dayEntries.map((e) => e.type))]
+    const totalMs = dayEntries.reduce((sum, e) => sum + (e.end! - e.start), 0)
+    days.push({ day: i, date, types, totalMs })
   }
   return days
 })
@@ -50,6 +70,36 @@ const selectedDayEntries = computed(() => {
   const dayEnd = new Date(selectedDate.value).setHours(23, 59, 59, 999)
   return store.entries.filter((e) => e.end !== null && e.start >= dayStart && e.start <= dayEnd)
 })
+
+type TimelineItem =
+  | { kind: 'entry'; entry: TimeEntry }
+  | { kind: 'gap'; start: number; end: number }
+
+// Chronological timeline of the day's entries with untracked gaps
+// interleaved between consecutive entries.
+const dayTimeline = computed<TimelineItem[]>(() => {
+  const sorted = [...selectedDayEntries.value].sort((a, b) => a.start - b.start)
+  const items: TimelineItem[] = []
+  let prevEnd: number | null = null
+  for (const e of sorted) {
+    if (prevEnd !== null && e.start > prevEnd) {
+      items.push({ kind: 'gap', start: prevEnd, end: e.start })
+    }
+    items.push({ kind: 'entry', entry: e })
+    prevEnd = Math.max(prevEnd ?? 0, e.end ?? e.start)
+  }
+  return items
+})
+
+function dotColor(type: string): string {
+  return getTrackerConfig(type as TimeEntry['type']).accent
+}
+
+function formatDayTotal(ms: number): string {
+  const h = ms / 3600000
+  if (h >= 1) return `${Number.isInteger(h) ? h : h.toFixed(1)}h`
+  return `${Math.round(ms / 60000)}m`
+}
 
 function previousMonth() {
   currentMonth.value = new Date(currentMonth.value.getFullYear(), currentMonth.value.getMonth() - 1)
@@ -98,22 +148,22 @@ function getDayTotal(date: Date): number {
     .reduce((sum, e) => sum + (e.end! - e.start), 0)
 }
 
-function deleteEntry(entryId: string) {
-  if (confirm('Are you sure you want to delete this entry?')) {
+function deleteEntry(entryId: string, e?: MouseEvent) {
+  if (e?.shiftKey || confirm('Are you sure you want to delete this entry?')) {
     store.deleteEntry(entryId)
   }
 }
 </script>
 
 <template>
-  <div v-if="show" class="history-overlay">
+  <div class="history-view">
     <div class="history-panel">
       <div class="history-header">
         <div class="header-left">
           <Calendar class="header-icon" />
           <h2>History</h2>
         </div>
-        <button class="close-btn" @click="emit('close')">
+        <button class="close-btn" @click="close">
           <X class="close-icon" />
         </button>
       </div>
@@ -129,26 +179,39 @@ function deleteEntry(entryId: string) {
       </div>
 
       <div class="calendar-grid">
-        <div class="calendar-day-header">Sun</div>
-        <div class="calendar-day-header">Mon</div>
-        <div class="calendar-day-header">Tue</div>
-        <div class="calendar-day-header">Wed</div>
-        <div class="calendar-day-header">Thu</div>
-        <div class="calendar-day-header">Fri</div>
-        <div class="calendar-day-header">Sat</div>
+        <div
+          v-for="header in weekHeaders"
+          :key="header"
+          class="calendar-day-header"
+        >
+          {{ header }}
+        </div>
 
         <div
           v-for="(day, index) in daysInMonth"
           :key="index"
           class="calendar-day"
           :class="{
-            'has-data': day.hasData,
+            'has-data': day.types.length > 0,
             'selected': selectedDate && day.date && selectedDate.getTime() === day.date.getTime(),
             'empty': !day.day
           }"
+          :data-test="day.day ? `day-${day.day}` : 'day-blank'"
           @click="selectDay(day)"
         >
-          <span v-if="day.day" class="day-number">{{ day.day }}</span>
+          <template v-if="day.day">
+            <span class="day-number">{{ day.day }}</span>
+            <span v-if="day.totalMs > 0" class="day-total">{{ formatDayTotal(day.totalMs) }}</span>
+            <span v-if="day.types.length" class="day-dots">
+              <span
+                v-for="t in day.types"
+                :key="t"
+                class="day-dot"
+                :data-test="`dot-${t}`"
+                :style="{ background: dotColor(t) }"
+              />
+            </span>
+          </template>
         </div>
       </div>
 
@@ -165,27 +228,43 @@ function deleteEntry(entryId: string) {
         </div>
 
         <div v-else class="entries-list">
-          <div
-            v-for="entry in selectedDayEntries"
-            :key="entry.id"
-            class="entry-item"
-          >
-            <div class="entry-left">
-              <div class="entry-top-row">
-                <span class="entry-time">{{ formatEntryTime(entry) }}</span>
-                <span class="entry-label">{{ getEntryLabel(entry) }}</span>
+          <template v-for="item in dayTimeline" :key="item.kind === 'entry' ? item.entry.id : `gap-${item.start}`">
+            <div
+              v-if="item.kind === 'gap'"
+              class="entry-item gap-item"
+              data-test="timeline-gap"
+            >
+              <div class="entry-left">
+                <span class="entry-time">{{ formatEntryTime({ start: item.start }) }}</span>
+                <span class="entry-label gap-label">Untracked</span>
               </div>
-              <div v-if="entry.description" class="entry-description">
-                {{ entry.description }}
+              <div class="entry-right">
+                <div class="entry-duration gap-duration">{{ formatTime(item.end - item.start) }}</div>
               </div>
             </div>
-            <div class="entry-right">
-              <div class="entry-duration">{{ formatTime(entry.end! - entry.start) }}</div>
-              <button class="delete-entry-btn" @click="(e) => deleteEntry(entry.id, e)" title="Delete entry (hold Shift to skip confirmation)">
-                <X class="delete-icon" />
-              </button>
+            <div
+              v-else
+              class="entry-item"
+              data-test="timeline-entry"
+              :data-entry-id="item.entry.id"
+            >
+              <div class="entry-left">
+                <div class="entry-top-row">
+                  <span class="entry-time">{{ formatEntryTime(item.entry) }}</span>
+                  <span class="entry-label">{{ getEntryLabel(item.entry) }}</span>
+                </div>
+                <div v-if="item.entry.description" class="entry-description">
+                  {{ item.entry.description }}
+                </div>
+              </div>
+              <div class="entry-right">
+                <div class="entry-duration">{{ formatTime(item.entry.end! - item.entry.start) }}</div>
+                <button class="delete-entry-btn" @click="(e) => deleteEntry(item.entry.id, e)" title="Delete entry (hold Shift to skip confirmation)">
+                  <X class="delete-icon" />
+                </button>
+              </div>
             </div>
-          </div>
+          </template>
         </div>
 
         <div class="day-summary">
@@ -198,17 +277,9 @@ function deleteEntry(entryId: string) {
 </template>
 
 <style scoped>
-.history-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+.history-view {
   display: flex;
-  align-items: center;
   justify-content: center;
-  z-index: 1000;
   padding: 1rem;
 }
 
@@ -216,9 +287,8 @@ function deleteEntry(entryId: string) {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  max-width: 600px;
+  max-width: 720px;
   width: 100%;
-  max-height: 90vh;
   display: flex;
   flex-direction: column;
 }
@@ -327,13 +397,39 @@ function deleteEntry(entryId: string) {
 .calendar-day {
   aspect-ratio: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
   font-size: 0.875rem;
   color: var(--text-primary);
+  padding: 2px;
+  overflow: hidden;
+}
+
+.day-total {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.day-dots {
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.day-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .calendar-day.empty {
@@ -468,6 +564,22 @@ function deleteEntry(entryId: string) {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.gap-item {
+  background: transparent;
+  border: 1px dashed var(--border-color);
+  opacity: 0.7;
+}
+
+.gap-label {
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px dashed var(--border-color);
+}
+
+.gap-duration {
+  color: var(--text-muted);
 }
 
 .delete-entry-btn {

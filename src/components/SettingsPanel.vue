@@ -1,17 +1,15 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useMegagrindStore } from '../stores/megagrind'
 import { useApi, type DatabaseType } from '../composables/useApi'
 import { DEFAULT_CHORE_CATEGORIES, DEFAULT_WORK_CATEGORIES } from '../types'
 import { X, Download, Upload, Trash2, Plus } from 'lucide-vue-next'
 
-const props = defineProps<{
-  show: boolean
-}>()
-
-const emit = defineEmits<{
-  close: []
-}>()
+const router = useRouter()
+function close() {
+  router.push('/')
+}
 
 const store = useMegagrindStore()
 const api = useApi()
@@ -97,19 +95,7 @@ function removeCustomChrono(chrono: string, event?: MouseEvent) {
 
 const connectionStatus = ref<'idle' | 'testing' | 'connected' | 'failed'>('idle')
 
-watch(() => props.show, (isOpen) => {
-  if (isOpen) {
-    localSettings.value = {
-      ...store.settings,
-      choreCategories: [...(store.settings.choreCategories ?? DEFAULT_CHORE_CATEGORIES)],
-      workCategories: [...(store.settings.workCategories ?? DEFAULT_WORK_CATEGORIES)],
-      customChronos: [...(store.settings.customChronos ?? [])],
-      weeklyAllocations: { ...store.settings.weeklyAllocations },
-    }
-  }
-})
 const activeDb = ref<DatabaseType | null>(null)
-const dbSwitching = ref(false)
 
 async function testConnection() {
   connectionStatus.value = 'testing'
@@ -126,19 +112,6 @@ async function testConnection() {
   }
 }
 
-async function switchDatabase(type: DatabaseType) {
-  dbSwitching.value = true
-  api.setBaseUrl(localSettings.value.backendUrl)
-  try {
-    const status = await api.switchDatabase(type)
-    activeDb.value = status.active
-  } catch (err) {
-    console.warn('[settings] Failed to switch database', err)
-  } finally {
-    dbSwitching.value = false
-  }
-}
-
 function saveSettings() {
   const prevMode = store.settings.backendMode
   const prevUrl = store.settings.backendUrl
@@ -149,7 +122,7 @@ function saveSettings() {
       (store.settings.backendMode !== prevMode || store.settings.backendUrl !== prevUrl)) {
     store.initFromBackend()
   }
-  emit('close')
+  close()
 }
 
 function exportData() {
@@ -184,7 +157,7 @@ function importData() {
           }
           store.importWeekData(data)
           localSettings.value = { ...store.settings }
-          emit('close')
+          close()
         } catch (err) {
           alert('Invalid file format')
         }
@@ -202,20 +175,26 @@ function clearAllData() {
     for (const id of ids) {
       store.deleteEntry(id)
     }
-    emit('close')
+    // Reset progress check state so the countdown/red count/snooze/focus
+    // don't survive the wipe (nextCheckAt=null signals ProgressCheck to
+    // re-initialize the timer to a fresh interval).
+    store.resetProgressCheck()
+    close()
   }
 }
 </script>
 
 <template>
-  <div v-if="show" class="settings-overlay">
+  <div class="settings-view">
     <div class="settings-panel">
       <div class="settings-header">
         <h2>Settings</h2>
-        <div v-if="hasChanges" class="unsaved-indicator">Unsaved changes</div>
-        <button class="close-btn" @click="emit('close')">
-          <X class="close-icon" />
-        </button>
+        <div class="header-right">
+          <span v-if="hasChanges" class="unsaved-indicator">Unsaved changes</span>
+          <button class="close-btn" @click="close">
+            <X class="close-icon" />
+          </button>
+        </div>
       </div>
 
       <div class="settings-content">
@@ -433,10 +412,24 @@ function clearAllData() {
               type="checkbox"
             />
           </div>
+          <div class="toggle-item">
+            <label>Idle time tracking</label>
+            <input
+              v-model="localSettings.idleTimeEnabled"
+              type="checkbox"
+            />
+          </div>
         </div>
 
         <div class="settings-section">
           <h3>Progress Check</h3>
+          <div class="toggle-item">
+            <label>Enable progress check</label>
+            <input
+              v-model="localSettings.progressCheckEnabled"
+              type="checkbox"
+            />
+          </div>
           <div class="subsection">
             <h4>Focus Mode</h4>
             <div class="focus-setting">
@@ -498,14 +491,6 @@ function clearAllData() {
                 />
                 <span>SQLite (Turnkey)</span>
               </label>
-              <label class="mode-option">
-                <input
-                  v-model="localSettings.backendMode"
-                  type="radio"
-                  value="mongodb"
-                />
-                <span>MongoDB (Requires Setup)</span>
-              </label>
             </div>
           </div>
 
@@ -536,27 +521,6 @@ function clearAllData() {
               <span class="status-badge status-fail">Connection Failed</span>
             </div>
 
-            <div v-if="connectionStatus === 'connected'" class="db-switch-row">
-              <label>Switch Database</label>
-              <div class="db-switch-buttons">
-                <button
-                  class="btn-db-switch"
-                  :class="{ active: activeDb === 'sqlite' }"
-                  :disabled="dbSwitching || activeDb === 'sqlite'"
-                  @click="switchDatabase('sqlite')"
-                >
-                  SQLite
-                </button>
-                <button
-                  class="btn-db-switch"
-                  :class="{ active: activeDb === 'mongodb' }"
-                  :disabled="dbSwitching || activeDb === 'mongodb'"
-                  @click="switchDatabase('mongodb')"
-                >
-                  MongoDB
-                </button>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -580,7 +544,7 @@ function clearAllData() {
       </div>
 
       <div class="settings-footer">
-        <button class="btn-cancel" @click="emit('close')">Cancel</button>
+        <button class="btn-cancel" @click="close">Cancel</button>
         <button class="btn-save" :class="{ disabled: !hasChanges || hasInvalidAllocations }" :disabled="!hasChanges || hasInvalidAllocations" @click="saveSettings">Save Settings</button>
       </div>
     </div>
@@ -588,31 +552,18 @@ function clearAllData() {
 </template>
 
 <style scoped>
-.settings-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+.settings-view {
   display: flex;
-  align-items: center;
   justify-content: center;
-  z-index: 1000;
   padding: 1rem;
-}
-
-.settings-overlay::backdrop {
-  background: rgba(0, 0, 0, 0.8);
 }
 
 .settings-panel {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  max-width: 600px;
+  max-width: 720px;
   width: 100%;
-  max-height: 90vh;
   display: flex;
   flex-direction: column;
 }
@@ -630,6 +581,12 @@ function clearAllData() {
   font-size: 1.25rem;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .unsaved-indicator {
@@ -1236,11 +1193,5 @@ function clearAllData() {
 .btn-add-icon {
   width: 14px;
   height: 14px;
-}
-</style>
-
-<style>
-body:has(.settings-overlay) {
-  overflow: hidden;
 }
 </style>

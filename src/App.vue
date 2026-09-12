@@ -1,21 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { onMounted, watch } from 'vue'
 import { useMegagrindStore } from './stores/megagrind'
-import TrackerCard from './components/TrackerCard.vue'
-import WorkSessionTracker from './components/WorkSessionTracker.vue'
-import ChoresSessionTracker from './components/ChoresSessionTracker.vue'
-import ProgressCheck from './components/ProgressCheck.vue'
-import SettingsPanel from './components/SettingsPanel.vue'
-import Dashboard from './components/Dashboard.vue'
-import IdleTracker from './components/IdleTracker.vue'
-import HistoryView from './components/HistoryView.vue'
-import ChronosCarousel from './components/ChronosCarousel.vue'
-import { Settings, Calendar } from 'lucide-vue-next'
+import AppNav from './components/AppNav.vue'
 
 const store = useMegagrindStore()
 store.migrateSettings()
-const showSettings = ref(false)
-const showHistory = ref(false)
 
 onMounted(() => {
   store.resetStaleProgressCheck()
@@ -38,25 +27,6 @@ function updateTheme() {
 }
 
 watch(() => store.settings.darkMode, updateTheme)
-
-const totalWorkHours = computed(() => {
-  const weeklyTotal = store.getTotalTimeForType('work')
-  return (weeklyTotal / (60 * 60 * 1000)).toFixed(1)
-})
-
-const remainingWorkHours = computed(() => {
-  const totalAllocated = Object.values(store.settings.weeklyAllocations).reduce((a, b) => a + b, 0)
-  const workAllocation = 168 - totalAllocated
-  const weeklyTotal = store.getTotalTimeForType('work')
-  const remaining = workAllocation - weeklyTotal / (60 * 60 * 1000)
-  return remaining.toFixed(1)
-})
-
-const trackerTypes = computed(() => {
-  const builtIn = ['sleep', 'cook', 'shower', 'move', 'leisure', 'unexpected', 'buffer']
-  const custom = store.settings.customChronos ?? []
-  return [...builtIn, ...custom]
-})
 </script>
 
 <template>
@@ -66,52 +36,12 @@ const trackerTypes = computed(() => {
         <h1 class="title">MEGAGRIND</h1>
         <span class="subtitle">Work more than Bill Gates</span>
       </div>
-      <div class="header-right">
-        <div class="work-summary">
-          <span class="summary-label">This week:</span>
-          <span class="summary-value">{{ totalWorkHours }}h</span>
-          <span class="summary-divider">/</span>
-          <span class="summary-remaining">{{ remainingWorkHours }}h remaining</span>
-        </div>
-        <div class="header-actions">
-          <button class="icon-btn" @click="showHistory = true" title="History">
-            <Calendar class="btn-icon" />
-          </button>
-          <button class="icon-btn" @click="showSettings = true" title="Settings">
-            <Settings class="btn-icon" />
-          </button>
-        </div>
-      </div>
+      <AppNav />
     </header>
 
     <main class="main">
-      <Dashboard />
-
-      <ProgressCheck />
-
-      <div class="work-idle-row">
-        <div class="work-section">
-          <WorkSessionTracker />
-        </div>
-        <div class="chores-section">
-          <ChoresSessionTracker />
-        </div>
-        <div class="idle-section">
-          <IdleTracker />
-        </div>
-      </div>
-
-      <ChronosCarousel>
-        <TrackerCard v-for="type in trackerTypes" :key="type" :type="type" />
-      </ChronosCarousel>
-
-      <div class="trackers-grid desktop-only">
-        <TrackerCard v-for="type in trackerTypes" :key="type" :type="type" />
-      </div>
+      <router-view />
     </main>
-
-    <SettingsPanel :show="showSettings" @close="showSettings = false" />
-    <HistoryView :show="showHistory" @close="showHistory = false" />
   </div>
 </template>
 
@@ -326,17 +256,7 @@ body {
   position: relative;
 }
 
-.work-section::after,
-.chores-section::after {
-  content: '';
-  position: absolute;
-  right: -1rem;
-  top: 0.5rem;
-  bottom: 0.5rem;
-  width: 2px;
-  background: var(--border-color);
-  opacity: 0.5;
-}
+
 
 .work-section > *,
 .chores-section > *,
@@ -392,10 +312,7 @@ body {
     min-height: auto;
   }
 
-  .work-section::after,
-  .chores-section::after {
-    display: none;
-  }
+  
 
   .work-section:not(:last-child),
   .chores-section:not(:last-child) {

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import type { TimeEntry, TrackerType, WorkCategory, Settings, WeekData } from '../types'
+import { ref, computed, watch } from 'vue'
+import type { TimeEntry, TrackerType, WorkCategory, Settings, WeekData, SyncOp } from '../types'
 import { DEFAULT_SETTINGS, DEFAULT_CHORE_CATEGORIES, DEFAULT_WORK_CATEGORIES } from '../types'
 import { useApi } from '../composables/useApi'
 
@@ -22,6 +22,122 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     nextCheckAt: null as number | null,
   })
   const api = useApi()
+
+  // ------------------------------------------------------------------
+  // Sync outbox: every mutation enqueues an op; ops flush FIFO to the
+  // backend and persist across reloads so a failed write is never lost.
+  // ------------------------------------------------------------------
+  const syncQueue = ref<SyncOp[]>([])
+  const pendingSyncCount = computed(() => syncQueue.value.length)
+  let flushing = false
+  let flushTimer: ReturnType<typeof setTimeout> | null = null
+  let retryTimer: ReturnType<typeof setTimeout> | null = null
+  let pcSyncTimer: ReturnType<typeof setTimeout> | null = null
+  let backendWatchStarted = false
+
+  function enqueueSync(op: SyncOp) {
+    if (settings.value.backendMode === 'local') return
+    // Coalesce: keep only the latest op per target.
+    if (op.kind === 'upsert-entry') {
+      syncQueue.value = syncQueue.value.filter(
+        (o) => !(o.kind === 'upsert-entry' && o.entry.id === op.entry.id),
+      )
+    } else if (op.kind === 'delete-entry') {
+      syncQueue.value = syncQueue.value.filter(
+        (o) => !(o.kind === 'upsert-entry' && o.entry.id === op.id)
+          && !(o.kind === 'delete-entry' && o.id === op.id),
+      )
+    } else if (op.kind === 'settings') {
+      syncQueue.value = syncQueue.value.filter((o) => o.kind !== 'settings')
+    } else if (op.kind === 'state') {
+      syncQueue.value = syncQueue.value.filter(
+        (o) => !(o.kind === 'state' && o.key === op.key),
+      )
+    }
+    syncQueue.value.push(op)
+    scheduleFlush()
+  }
+
+  function enqueueEntryUpsert(id: string) {
+    const entry = entries.value.find((e) => e.id === id)
+    if (entry) enqueueSync({ kind: 'upsert-entry', entry: { ...entry } })
+  }
+
+  function scheduleFlush() {
+    if (settings.value.backendMode === 'local') return
+    if (flushTimer) return
+    flushTimer = setTimeout(() => {
+      flushTimer = null
+      void flushSyncQueue()
+    }, 100)
+  }
+
+  function scheduleRetry() {
+    if (retryTimer) return
+    retryTimer = setTimeout(() => {
+      retryTimer = null
+      void flushSyncQueue()
+    }, 1000)
+  }
+
+  async function applySyncOp(op: SyncOp) {
+    switch (op.kind) {
+      case 'upsert-entry':
+        await api.bulkUpsertEntries([op.entry])
+        break
+      case 'bulk-entries':
+        await api.bulkUpsertEntries(op.entries)
+        break
+      case 'delete-entry':
+        await api.deleteEntry(op.id)
+        break
+      case 'settings':
+        await api.updateSettings(op.settings)
+        break
+      case 'state':
+        await api.putState(op.key, op.value)
+        break
+    }
+  }
+
+  async function flushSyncQueue() {
+    if (flushing) return
+    if (settings.value.backendMode === 'local') return
+    flushing = true
+    try {
+      while (syncQueue.value.length > 0) {
+        const op = syncQueue.value[0]!
+        try {
+          await applySyncOp(op)
+          syncQueue.value.shift()
+        } catch (err) {
+          console.warn('[megagrind] Sync op failed, will retry', err)
+          scheduleRetry()
+          break
+        }
+      }
+    } finally {
+      flushing = false
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => void flushSyncQueue())
+  }
+
+  // Debounced progressCheck sync — mutations are frequent, state is small.
+  watch(progressCheck, () => {
+    if (settings.value.backendMode === 'local') return
+    if (pcSyncTimer) clearTimeout(pcSyncTimer)
+    pcSyncTimer = setTimeout(() => {
+      enqueueSync({ kind: 'state', key: 'progressCheck', value: { ...progressCheck.value } })
+    }, 2000)
+  }, { deep: true })
+
+  // Run migration immediately when store is created to ensure new settings have defaults
+  watch(settings, () => {
+    migrateSettings()
+  }, { immediate: true })
 
   // Active session and idle are derived from entries: an entry with end=null
   // is the currently running session (or idle). This makes them persistent
@@ -58,7 +174,7 @@ export const useMegagrindStore = defineStore('megagrind', () => {
       const idx = entries.value.indexOf(openEntry)
       const now = Date.now()
       entries.value[idx] = { ...openEntry, end: now }
-      syncEntryUpdateToBackend(openEntry.id, { end: now })
+      enqueueEntryUpsert(openEntry.id)
     }
 
     // Create a new open entry (end=null) for the new session
@@ -71,7 +187,7 @@ export const useMegagrindStore = defineStore('megagrind', () => {
       category: category || undefined,
     }
     entries.value.push(newEntry)
-    syncEntryToBackend(newEntry)
+    enqueueSync({ kind: 'upsert-entry', entry: { ...newEntry } })
   }
 
   function stopSession() {
@@ -82,17 +198,19 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     const idx = entries.value.indexOf(openEntry)
     const now = Date.now()
     entries.value[idx] = { ...openEntry, end: now }
-    syncEntryUpdateToBackend(openEntry.id, { end: now })
+    enqueueEntryUpsert(openEntry.id)
 
-    // Start tracking idle time with a new open idle entry
-    const idleEntry: TimeEntry = {
-      id: generateId(),
-      type: 'idle',
-      start: Date.now(),
-      end: null,
+    // Start tracking idle time with a new open idle entry (if enabled)
+    if (settings.value.idleTimeEnabled) {
+      const idleEntry: TimeEntry = {
+        id: generateId(),
+        type: 'idle',
+        start: Date.now(),
+        end: null,
+      }
+      entries.value.push(idleEntry)
+      enqueueSync({ kind: 'upsert-entry', entry: { ...idleEntry } })
     }
-    entries.value.push(idleEntry)
-    syncEntryToBackend(idleEntry)
 
     // Reset progress check when session ends
     progressCheck.value.redCount = 0
@@ -102,39 +220,17 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     progressCheck.value.nextCheckAt = null
   }
 
-  async function syncEntryToBackend(entry: TimeEntry) {
-    if (settings.value.backendMode === 'local') return
-    try {
-      await api.createEntry(entry)
-    } catch (err) {
-      console.warn('[megagrind] Backend sync failed for entry', entry.id, err)
-    }
-  }
-
-  async function syncEntryDeleteToBackend(id: string) {
-    if (settings.value.backendMode === 'local') return
-    try {
-      await api.deleteEntry(id)
-    } catch (err) {
-      console.warn('[megagrind] Backend delete sync failed for entry', id, err)
-    }
-  }
-
-  async function syncEntryUpdateToBackend(id: string, updates: Partial<Omit<TimeEntry, 'id'>>) {
-    if (settings.value.backendMode === 'local') return
-    try {
-      await api.updateEntry(id, updates)
-    } catch (err) {
-      console.warn('[megagrind] Backend update sync failed for entry', id, err)
-    }
-  }
-
-  async function syncSettingsToBackend(newSettings: Settings) {
-    if (settings.value.backendMode === 'local') return
-    try {
-      await api.updateSettings(newSettings)
-    } catch (err) {
-      console.warn('[megagrind] Backend settings sync failed', err)
+  // If the backend wasn't up at startup, poll /api/health in the
+  // background and reload once it answers so remote data is pulled in.
+  async function watchForBackend() {
+    if (backendWatchStarted || typeof window === 'undefined') return
+    backendWatchStarted = true
+    while (settings.value.backendMode !== 'local') {
+      await new Promise((r) => setTimeout(r, 5000))
+      if (await api.checkConnection()) {
+        window.location.reload()
+        return
+      }
     }
   }
 
@@ -143,20 +239,39 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     api.setBaseUrl(settings.value.backendUrl)
     api.setBackendMode(settings.value.backendMode)
     try {
-      const remoteEntries = await api.getEntries()
-      if (remoteEntries.length > 0) {
-        const localIds = new Set(entries.value.map((e) => e.id))
-        for (const entry of remoteEntries) {
-          if (!localIds.has(entry.id)) {
-            entries.value.push(entry)
-          }
-        }
+      const reachable = await api.checkConnection()
+      if (!reachable) {
+        void watchForBackend()
+        return
       }
+
+      // Push local-only entries first so nothing is lost, then merge
+      // with server winning on conflicts.
+      const remoteEntries = await api.getEntries()
+      const remoteIds = new Set(remoteEntries.map((e) => e.id))
+      const localOnly = entries.value.filter((e) => !remoteIds.has(e.id))
+      if (localOnly.length > 0) {
+        await api.bulkUpsertEntries(localOnly)
+      }
+      const merged = new Map<string, TimeEntry>()
+      for (const e of entries.value) merged.set(e.id, e)
+      for (const e of remoteEntries) merged.set(e.id, e)
+      entries.value = [...merged.values()].sort((a, b) => a.start - b.start)
+
       const remoteSettings = await api.getSettings()
       if (remoteSettings) {
-        const { backendMode, backendUrl, ...rest } = remoteSettings
+        const { backendMode: _backendMode, backendUrl: _backendUrl, ...rest } = remoteSettings
         settings.value = { ...settings.value, ...rest }
+      } else {
+        await api.updateSettings(settings.value)
       }
+
+      const remotePc = await api.getState<typeof progressCheck.value>('progressCheck')
+      if (remotePc && typeof remotePc === 'object') {
+        progressCheck.value = { ...progressCheck.value, ...remotePc }
+      }
+
+      await flushSyncQueue()
     } catch (err) {
       console.warn('[megagrind] Failed to load from backend, using local data', err)
     }
@@ -197,7 +312,7 @@ export const useMegagrindStore = defineStore('megagrind', () => {
             const lastCorrectionIndex = entries.value.findIndex(e => e.id === lastCorrection.id)
             if (lastCorrectionIndex !== -1 && entries.value[lastCorrectionIndex]) {
               entries.value[lastCorrectionIndex].balancedWith = fullEntry.id
-              syncEntryUpdateToBackend(lastCorrection.id, { balancedWith: fullEntry.id })
+              enqueueEntryUpsert(lastCorrection.id)
             }
           }
         }
@@ -205,14 +320,14 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     }
 
     entries.value.push(fullEntry)
-    syncEntryToBackend(fullEntry)
+    enqueueSync({ kind: 'upsert-entry', entry: { ...fullEntry } })
   }
 
   function deleteEntry(id: string) {
     const index = entries.value.findIndex((e) => e.id === id)
     if (index !== -1) {
       entries.value.splice(index, 1)
-      syncEntryDeleteToBackend(id)
+      enqueueSync({ kind: 'delete-entry', id })
     }
   }
 
@@ -220,7 +335,7 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     const index = entries.value.findIndex((e) => e.id === id)
     if (index !== -1) {
       entries.value[index] = { ...entries.value[index], ...updates } as TimeEntry
-      syncEntryUpdateToBackend(id, updates)
+      enqueueEntryUpsert(id)
     }
   }
 
@@ -235,8 +350,9 @@ export const useMegagrindStore = defineStore('megagrind', () => {
   }
 
   function getTotalTimeForType(type: TrackerType): number {
+    const weekStart = currentWeekStart.value
     return entries.value
-      .filter((e) => e.type === type && e.end !== null)
+      .filter((e) => e.type === type && e.end !== null && e.start >= weekStart)
       .reduce((sum, entry) => sum + (entry.end! - entry.start), 0)
   }
 
@@ -259,8 +375,8 @@ export const useMegagrindStore = defineStore('megagrind', () => {
   }
 
   function initIdle() {
-    // If nothing is running and there's no open idle entry, create one
-    if (!isRunning.value && idleStartTime.value === null) {
+    // If nothing is running and there's no open idle entry, create one (if enabled)
+    if (settings.value.idleTimeEnabled && !isRunning.value && idleStartTime.value === null) {
       const idleEntry: TimeEntry = {
         id: generateId(),
         type: 'idle',
@@ -268,7 +384,7 @@ export const useMegagrindStore = defineStore('megagrind', () => {
         end: null,
       }
       entries.value.push(idleEntry)
-      syncEntryToBackend(idleEntry)
+      enqueueSync({ kind: 'upsert-entry', entry: { ...idleEntry } })
     }
   }
 
@@ -306,6 +422,14 @@ export const useMegagrindStore = defineStore('megagrind', () => {
 
   function resetRedCount() {
     progressCheck.value.redCount = 0
+  }
+
+  function resetProgressCheck() {
+    progressCheck.value.redCount = 0
+    progressCheck.value.lastCheck = null
+    progressCheck.value.snoozeUntil = null
+    progressCheck.value.focusModeUntil = null
+    progressCheck.value.nextCheckAt = null
   }
 
   function snoozeProgressCheck() {
@@ -351,6 +475,12 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     if (settings.value.soundEnabled === undefined) {
       settings.value.soundEnabled = DEFAULT_SETTINGS.soundEnabled
     }
+    if (settings.value.idleTimeEnabled === undefined) {
+      settings.value.idleTimeEnabled = DEFAULT_SETTINGS.idleTimeEnabled
+    }
+    if (settings.value.progressCheckEnabled === undefined) {
+      settings.value.progressCheckEnabled = DEFAULT_SETTINGS.progressCheckEnabled
+    }
     if (settings.value.weekRolloverDay === undefined) {
       settings.value.weekRolloverDay = DEFAULT_SETTINGS.weekRolloverDay
     }
@@ -375,7 +505,7 @@ export const useMegagrindStore = defineStore('megagrind', () => {
 
   function updateSettings(newSettings: Partial<Settings>) {
     settings.value = { ...settings.value, ...newSettings }
-    syncSettingsToBackend(settings.value)
+    enqueueSync({ kind: 'settings', settings: { ...settings.value } })
   }
 
   function exportWeekData(): WeekData {
@@ -390,12 +520,10 @@ export const useMegagrindStore = defineStore('megagrind', () => {
   function importWeekData(data: WeekData) {
     entries.value = data.entries
     settings.value = data.settings
-    // Push imported data to backend so it survives reload.
-    // Existing entries on the backend will fail silently (caught in sync fn).
-    for (const entry of data.entries) {
-      syncEntryToBackend(entry)
-    }
-    syncSettingsToBackend(settings.value)
+    // Push imported data to backend so it survives reload (bulk upsert
+    // is idempotent — existing ids are updated, not duplicated).
+    enqueueSync({ kind: 'bulk-entries', entries: data.entries.map((e) => ({ ...e })) })
+    enqueueSync({ kind: 'settings', settings: { ...settings.value } })
   }
 
   function getWeekStart(): number {
@@ -405,8 +533,17 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     const weekStart = new Date(now)
     weekStart.setDate(now.getDate() - diff)
     weekStart.setHours(settings.value.weekRolloverHour, 0, 0, 0)
+    // On the rollover day before the rollover hour the computed start is
+    // in the future — the current week actually began 7 days earlier.
+    if (weekStart.getTime() > now.getTime()) {
+      weekStart.setDate(weekStart.getDate() - 7)
+    }
     return weekStart.getTime()
   }
+
+  // Single source of truth for the current week boundary. Recomputes when
+  // rollover settings change; entries before this are excluded from totals.
+  const currentWeekStart = computed(() => getWeekStart())
 
   function getDayStart(date: Date = new Date()): number {
     const dayStart = new Date(date)
@@ -444,6 +581,7 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     resetStaleProgressCheck,
     recordProgressCheck,
     resetRedCount,
+    resetProgressCheck,
     snoozeProgressCheck,
     enableFocusMode,
     disableFocusMode,
@@ -455,11 +593,15 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     getDayStart,
     getDayEnd,
     initFromBackend,
+    syncQueue,
+    pendingSyncCount,
+    flushSyncQueue,
+    currentWeekStart,
   }
 }, {
   persist: {
     key: 'megagrind-store',
     storage: localStorage,
-    pick: ['entries', 'settings', 'progressCheck'],
+    pick: ['entries', 'settings', 'progressCheck', 'syncQueue'],
   },
 })

@@ -21,19 +21,22 @@ npm run server:install
 
 ### Running the App
 
-- For local-only mode, just run `npm run dev`—the frontend works standalone with localStorage.
-
 ```bash
-# Start frontend (http://localhost:5173)
-npm run dev
+# Frontend + backend together (frontend :5173, API :3000, /api proxied)
+npm run dev:all
 ```
 
+Or run them separately:
+
 ```bash
-# Start server in another terminal (http://localhost:3000)
+# Frontend only — works standalone in local mode with localStorage
+npm run dev
+
+# Backend only (http://localhost:3000)
 npm run server:dev
 ```
 
-For local-only mode, just run `npm run dev`—the frontend works standalone with localStorage.
+The Vite dev server proxies `/api/*` to `http://localhost:3000`, so no CORS or URL config is needed in dev.
 
 ## Features
 
@@ -41,9 +44,9 @@ For local-only mode, just run `npm run dev`—the frontend works standalone with
 
 Your data is always safe, even without an internet connection. MegaGrind automatically saves everything to your browser's local storage, so you can track your time whether the server is up/accessible or down.)
 
-When you reconnect, it seamlessly syncs to your preferred backend (SQLite or MongoDB). No setup required, no data lost, just continuous tracking.
+When you reconnect, it seamlessly syncs to the SQLite backend. No setup required, no data lost, just continuous tracking.
 
-The database is optional, thanks to a abstraction layer that allows the switch between all 3 options.
+Every mutation goes through a persisted sync outbox: changes are queued in localStorage first, then flushed to the backend in order with retry and backoff. A crash or reload mid-sync loses nothing — the queue survives and drains on the next launch.
 
 ## Flexible Week Rollover
 
@@ -75,17 +78,37 @@ Open Settings (top-left) to customize:
 ## Data & Backup
 
 - **Local mode**: All data stored in browser localStorage
-- **Remote mode**: Sync with backend server (SQLite or MongoDB)
-- **Auto-backup**: Every 5 minutes when changes are made
+- **Remote mode**: Sync with the backend server (SQLite)
+- **Sync outbox**: Mutations queue in localStorage and flush FIFO with retry
 - **Manual backup**: Export/import JSON with validation
-- **Multi-tab sync**: Automatic synchronization across browser tabs
 
 ## Tech Stack
 
-- **Frontend**: Vue 3 + Vite + TypeScript + TailwindCSS + Pinia
+- **Frontend**: Vue 3 + Vite + TypeScript + TailwindCSS + Pinia + Vue Router
 - **Backend**: Hono + Node.js
-- **Database**: SQLite or MongoDB (optional)
+- **Database**: SQLite (better-sqlite3)
 - **State**: Pinia with persistence plugin
+- **Tests**: Vitest + @vue/test-utils (jsdom) / node env for the server
+
+## Routes
+
+- `/` — Track: NowBar + launcher grid of session trackers + progress check
+- `/dashboard` — Weekly overview
+- `/history` — Month calendar with per-type dots and a day timeline
+- `/settings` — Allocations, categories, rollover, backend
+
+## Testing
+
+```bash
+# Frontend tests (jsdom)
+npm test
+
+# Backend tests (node)
+npm run test:server
+
+# Everything
+npm run test:all
+```
 
 ## License
 

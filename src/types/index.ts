@@ -22,6 +22,13 @@ export interface WeekData {
   settings: Settings
 }
 
+export type SyncOp =
+  | { kind: 'upsert-entry'; entry: TimeEntry }
+  | { kind: 'bulk-entries'; entries: TimeEntry[] }
+  | { kind: 'delete-entry'; id: string }
+  | { kind: 'settings'; settings: Settings }
+  | { kind: 'state'; key: string; value: unknown }
+
 export interface Settings {
   weeklyAllocations: Record<string, number>
   customChronos: string[]
@@ -36,6 +43,8 @@ export interface Settings {
   darkMode: 'auto' | 'light' | 'dark'
   backendMode: 'local' | 'sqlite' | 'mongodb'
   backendUrl: string
+  idleTimeEnabled: boolean
+  progressCheckEnabled: boolean
 }
 
 export interface TrackerState {
@@ -72,8 +81,10 @@ export const DEFAULT_SETTINGS: Settings = {
   focusModeDuration: 90,
   progressCheckInterval: 15,
   darkMode: 'auto',
-  backendMode: 'local',
+  backendMode: 'sqlite',
   backendUrl: 'http://localhost:3000',
+  idleTimeEnabled: true,
+  progressCheckEnabled: true,
 }
 
 export const TRACKER_LABELS: Record<string, string> = {

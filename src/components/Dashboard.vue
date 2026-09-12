@@ -92,9 +92,9 @@ function getBarWidth(total: number, allowance: number): number {
 }
 
 function getBarColor(total: number, allowance: number): string {
-  const diff = total - allowance
-  if (diff > 0) return '#f87171'
-  if (diff < -3600000) return '#fbbf24'
+  const diff = allowance - total
+  if (diff < 0) return '#f87171'
+  if (diff > 3600000) return '#fbbf24'
   return '#4ade80'
 }
 </script>
@@ -125,7 +125,7 @@ function getBarColor(total: number, allowance: number): string {
         </div>
       </div>
 
-      <div class="summary-card reds-card">
+      <div class="summary-card reds-card" v-if="store.settings.progressCheckEnabled">
         <AlertCircle class="card-icon" />
         <div class="card-content">
           <span class="card-label">Red Checks Today</span>
@@ -165,17 +165,14 @@ function getBarColor(total: number, allowance: number): string {
       <div class="stat-box">
         <h4>Total Allocated</h4>
         <span class="stat-number">{{ totalAllocated.toFixed(1) }}h</span>
-        <span class="stat-desc">Non-work activities</span>
       </div>
       <div class="stat-box">
         <h4>Available for Work</h4>
-        <span class="stat-number">{{ (168 - totalAllocated).toFixed(1) }}h</span>
-        <span class="stat-desc">From 168h total</span>
+        <span class="stat-number">{{ (168 - totalAllocated).toFixed(1) }}h/168h</span>
       </div>
       <div class="stat-box">
         <h4>Bill Gates Target</h4>
-        <span class="stat-number">100h</span>
-        <span class="stat-desc">Weekly goal</span>
+        <span class="stat-number">{{ (168 - totalAllocated).toFixed(1) }}h/100h</span>
       </div>
     </div>
 

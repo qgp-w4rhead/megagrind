@@ -39,16 +39,11 @@ export interface Settings {
   darkMode: 'auto' | 'light' | 'dark'
   backendMode: 'local' | 'sqlite' | 'mongodb'
   backendUrl: string
+  idleTimeEnabled: boolean
+  progressCheckEnabled: boolean
 }
 
-export interface WeekData {
-  version: number
-  weekStart: number
-  entries: TimeEntry[]
-  settings: Settings
-}
-
-export type DatabaseType = 'sqlite' | 'mongodb'
+export type DatabaseType = 'sqlite'
 
 export interface DatabaseAdapter {
   readonly type: DatabaseType
@@ -59,15 +54,15 @@ export interface DatabaseAdapter {
   createEntry(entry: TimeEntry): Promise<TimeEntry>
   updateEntry(id: string, updates: Partial<Omit<TimeEntry, 'id'>>): Promise<TimeEntry>
   deleteEntry(id: string): Promise<void>
+  bulkUpsertEntries(entries: TimeEntry[]): Promise<void>
 
   // Settings
   getSettings(): Promise<Settings | null>
   updateSettings(settings: Settings): Promise<Settings>
 
-  // Weeks (historical archives)
-  getWeeks(): Promise<WeekData[]>
-  getWeek(weekStart: number): Promise<WeekData | null>
-  saveWeek(data: WeekData): Promise<WeekData>
+  // Key-value state (e.g. progressCheck)
+  getState(key: string): Promise<unknown>
+  setState(key: string, value: unknown): Promise<void>
 
   // Lifecycle
   connect(): Promise<void>

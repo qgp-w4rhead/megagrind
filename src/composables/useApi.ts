@@ -1,54 +1,27 @@
 import { ref } from 'vue'
-import type { TimeEntry, Settings, WeekData } from '../types'
+import type { TimeEntry, Settings } from '../types'
 
 export type BackendMode = 'local' | 'sqlite' | 'mongodb'
-export type DatabaseType = 'sqlite' | 'mongodb'
+export type DatabaseType = 'sqlite'
 
 export interface DbStatus {
   active: DatabaseType | null
   available: DatabaseType[]
 }
 
-function getBaseUrl(): string {
-  try {
-    const stored = localStorage.getItem('megagrind-backend-url')
-    if (stored) return stored
-  } catch {
-    // ignore
-  }
-  return 'http://localhost:3000'
-}
-
-function getBackendMode(): BackendMode {
-  try {
-    const stored = localStorage.getItem('megagrind-backend-mode')
-    if (stored === 'sqlite' || stored === 'mongodb') return stored
-  } catch {
-    // ignore
-  }
-  return 'local'
-}
-
-const baseUrl = ref(getBaseUrl())
-const backendMode = ref<BackendMode>(getBackendMode())
+// Backend config lives in the megagrind store (persisted under 'megagrind-store').
+// These refs are set by the store via setBaseUrl/setBackendMode — no separate
+// localStorage keys, so there is a single source of truth.
+const baseUrl = ref('http://localhost:3000')
+const backendMode = ref<BackendMode>('local')
 const isBackendAvailable = ref(false)
 
 function setBaseUrl(url: string) {
   baseUrl.value = url
-  try {
-    localStorage.setItem('megagrind-backend-url', url)
-  } catch {
-    // ignore
-  }
 }
 
 function setBackendMode(mode: BackendMode) {
   backendMode.value = mode
-  try {
-    localStorage.setItem('megagrind-backend-mode', mode)
-  } catch {
-    // ignore
-  }
 }
 
 async function request<T>(
@@ -137,18 +110,21 @@ async function updateSettings(settings: Settings): Promise<Settings> {
   })
 }
 
-async function getWeeks(): Promise<WeekData[]> {
-  return request<WeekData[]>('/api/weeks')
-}
-
-async function getWeek(weekStart: number): Promise<WeekData | null> {
-  return request<WeekData | null>(`/api/weeks/${weekStart}`)
-}
-
-async function saveWeek(data: WeekData): Promise<WeekData> {
-  return request<WeekData>('/api/weeks', {
+async function bulkUpsertEntries(entries: TimeEntry[]): Promise<void> {
+  await request<{ success: boolean; count: number }>('/api/entries/bulk', {
     method: 'POST',
-    body: JSON.stringify(data),
+    body: JSON.stringify(entries),
+  })
+}
+
+async function getState<T = unknown>(key: string): Promise<T | null> {
+  return request<T | null>(`/api/state/${encodeURIComponent(key)}`)
+}
+
+async function putState(key: string, value: unknown): Promise<void> {
+  await request<{ success: boolean }>(`/api/state/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify(value),
   })
 }
 
@@ -168,8 +144,8 @@ export function useApi() {
     deleteEntry,
     getSettings,
     updateSettings,
-    getWeeks,
-    getWeek,
-    saveWeek,
+    bulkUpsertEntries,
+    getState,
+    putState,
   }
 }

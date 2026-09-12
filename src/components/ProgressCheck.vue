@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useMegagrindStore } from '../stores/megagrind'
 import { CheckCircle, XCircle, Clock, Coffee, Bell, BellOff } from 'lucide-vue-next'
 
@@ -12,9 +12,41 @@ const interval = ref<number | null>(null)
 
 const redCount = computed(() => store.progressCheck.redCount)
 const isFocusMode = computed(() => store.progressCheck.focusModeUntil !== null)
+// Reactive clock ticked every second by the interval below. `Date.now()` is
+// NOT reactive, so computeds/templates that use it directly only evaluate
+// once and never count down. Reading `now.value` forces re-evaluation each
+// tick, matching the pattern used in WorkSessionTracker.vue.
+const now = ref(Date.now())
 const focusModeRemaining = computed(() => {
   if (!store.progressCheck.focusModeUntil) return 0
-  return Math.max(0, store.progressCheck.focusModeUntil - Date.now())
+  return Math.max(0, store.progressCheck.focusModeUntil - now.value)
+})
+const snoozeRemaining = computed(() => {
+  if (!store.progressCheck.snoozeUntil) return 0
+  return Math.max(0, store.progressCheck.snoozeUntil - now.value)
+})
+
+// Whether a work session is currently active and the timer should be running.
+const isWorking = computed(() => store.isRunning && store.currentSessionType === 'work')
+
+// Re-sync the local countdown when nextCheckAt is changed externally
+// (e.g. by "Clear All Data" resetting it to null). Without this, the local
+// ref keeps its stale value across reloads and after data wipes.
+watch(() => store.progressCheck.nextCheckAt, (next) => {
+  if (next === null) {
+    timeUntilNext.value = intervalMs
+  } else {
+    timeUntilNext.value = Math.max(0, next - Date.now())
+  }
+})
+
+// If a work session starts while the timer is already expired (e.g. the tab
+// was idle for a long time, or data was cleared), reset to a fresh interval
+// instead of firing the prompt on the very next tick.
+watch(isWorking, (working) => {
+  if (working && timeUntilNext.value <= 0) {
+    resetTimer()
+  }
 })
 
 const shouldShowPrompt = computed(() => {
@@ -59,6 +91,7 @@ function toggleFocusMode() {
 
 function startTimer() {
   interval.value = window.setInterval(() => {
+    now.value = Date.now()
     if (isFocusMode.value) {
       if (focusModeRemaining.value <= 0) {
         store.disableFocusMode()
@@ -131,8 +164,8 @@ onUnmounted(() => {
       <span class="focus-time">Focus mode: {{ formatTime(focusModeRemaining) }} remaining</span>
     </div>
 
-    <div v-else-if="store.progressCheck.snoozeUntil && store.progressCheck.snoozeUntil > Date.now()" class="snooze-info">
-      <span class="snooze-time">Snoozed: {{ formatTime(store.progressCheck.snoozeUntil - Date.now()) }}</span>
+    <div v-else-if="store.progressCheck.snoozeUntil && store.progressCheck.snoozeUntil > now" class="snooze-info">
+      <span class="snooze-time">Snoozed: {{ formatTime(snoozeRemaining) }}</span>
     </div>
 
     <div v-else class="timer-info">
