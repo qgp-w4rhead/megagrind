@@ -142,4 +142,92 @@ describe('HistoryView day timeline', () => {
     // 2h + 2h = 4h
     expect(wrapper.find('.day-summary').text()).toContain('4h 0m')
   })
+
+  it('a midnight-spanning entry shows its overlap on both day cells and days', async () => {
+    const store = localStore()
+    store.entries.push(
+      entry({ id: 'night', type: 'sleep', start: new Date(2026, 8, 8, 23).getTime(), end: new Date(2026, 8, 9, 1).getTime() }),
+    )
+    const wrapper = mountView()
+    expect(wrapper.find('[data-test="day-8"] .day-total').text()).toBe('1h')
+    expect(wrapper.find('[data-test="day-9"] .day-total').text()).toBe('1h')
+    await wrapper.find('[data-test="day-9"]').trigger('click')
+    expect(wrapper.find('[data-entry-id="night"]').exists()).toBe(true)
+    expect(wrapper.find('.day-summary').text()).toContain('1h 0m')
+  })
+
+  it('a running entry appears in the timeline with a running indicator', async () => {
+    const store = localStore()
+    store.entries.push(
+      entry({ id: 'live', type: 'work', start: new Date(2026, 8, 9, 14).getTime(), end: null }),
+    )
+    const wrapper = mountView()
+    await wrapper.find('[data-test="day-9"]').trigger('click')
+    const live = wrapper.find('[data-entry-id="live"]')
+    expect(live.exists()).toBe(true)
+    expect(live.text()).toContain('Running')
+    expect(live.find('[data-test="entry-duration"]').text()).toBe('1h 0m')
+  })
+
+  it('a signed adjustment is labelled, shows a negative duration and creates no gap', async () => {
+    const store = localStore()
+    store.entries.push(
+      entry({ id: 'a', type: 'work', start: new Date(2026, 8, 9, 9).getTime(), end: new Date(2026, 8, 9, 10).getTime() }),
+      entry({ id: 'adj', type: 'work', start: new Date(2026, 8, 9, 12).getTime(), end: new Date(2026, 8, 9, 11, 30).getTime(), isCorrection: true }),
+    )
+    const wrapper = mountView()
+    await wrapper.find('[data-test="day-9"]').trigger('click')
+    expect(wrapper.find('[data-test="timeline-gap"]').exists()).toBe(false)
+    const adj = wrapper.find('[data-entry-id="adj"]')
+    expect(adj.text()).toContain('Adjustment')
+    expect(adj.find('[data-test="entry-duration"]').text()).toBe('-30m')
+    expect(wrapper.find('.day-summary').text()).toContain('30m')
+  })
+
+  it('gaps advance to the furthest covered endpoint, so nested entries do not split a gap', async () => {
+    const store = localStore()
+    store.entries.push(
+      entry({ id: 'wide', type: 'work', start: new Date(2026, 8, 9, 9).getTime(), end: new Date(2026, 8, 9, 12).getTime() }),
+      entry({ id: 'inner', type: 'work', start: new Date(2026, 8, 9, 10).getTime(), end: new Date(2026, 8, 9, 11).getTime() }),
+      entry({ id: 'later', type: 'work', start: new Date(2026, 8, 9, 13).getTime(), end: new Date(2026, 8, 9, 14).getTime() }),
+    )
+    const wrapper = mountView()
+    await wrapper.find('[data-test="day-9"]').trigger('click')
+    const gaps = wrapper.findAll('[data-test="timeline-gap"]')
+    expect(gaps).toHaveLength(1)
+    expect(gaps[0]!.text()).toContain('1h 0m')
+  })
+})
+
+describe('HistoryView editing', () => {
+  it('edit emits the original entry id, not a projected range timestamp', async () => {
+    const store = localStore()
+    store.entries.push(
+      entry({ id: 'night', type: 'sleep', start: new Date(2026, 8, 8, 23).getTime(), end: new Date(2026, 8, 9, 1).getTime() }),
+    )
+    const wrapper = mountView()
+    await wrapper.find('[data-test="day-9"]').trigger('click')
+    await wrapper.find('[data-test="edit-history-entry"]').trigger('click')
+    expect(wrapper.emitted('edit-entry')).toEqual([[{ id: 'night' }]])
+  })
+
+  it('delete requests deletion from the app and does not remove the entry here', async () => {
+    const store = localStore()
+    store.entries.push(
+      entry({ id: 'a', type: 'work', start: new Date(2026, 8, 9, 9).getTime(), end: new Date(2026, 8, 9, 10).getTime() }),
+    )
+    const wrapper = mountView()
+    await wrapper.find('[data-test="day-9"]').trigger('click')
+    await wrapper.find('.delete-entry-btn').trigger('click')
+    expect(wrapper.emitted('delete-entry')).toEqual([[{ id: 'a' }]])
+    expect(store.entries.map((e) => e.id)).toEqual(['a'])
+  })
+
+  it('add missed time emits an add request', async () => {
+    localStore()
+    const wrapper = mountView()
+    await wrapper.find('[data-test="day-9"]').trigger('click')
+    await wrapper.find('[data-test="history-add-entry"]').trigger('click')
+    expect(wrapper.emitted('add-entry')).toHaveLength(1)
+  })
 })

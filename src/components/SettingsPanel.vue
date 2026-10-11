@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, useId } from 'vue'
+import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import { useMegagrindStore } from '../stores/megagrind'
 import { useApi, type DatabaseType } from '../composables/useApi'
 import { DEFAULT_CHORE_CATEGORIES, DEFAULT_WORK_CATEGORIES } from '../types'
-import { X, Download, Upload, Trash2, Plus } from 'lucide-vue-next'
+import { validateSettings, hasSettingsErrors } from '../domain/settingsValidation'
+import { X, Trash2, Plus } from 'lucide-vue-next'
+import BackupPanel from './BackupPanel.vue'
 
 const router = useRouter()
 function close() {
@@ -20,18 +22,33 @@ const localSettings = ref({
   customChronos: [...(store.settings.customChronos ?? [])],
   weeklyAllocations: { ...store.settings.weeklyAllocations },
 })
+const allocPrefix = useId()
 const newChoreCategory = ref('')
 const newWorkCategory = ref('')
 const newCustomChrono = ref('')
 
+const isDirty = computed(() => JSON.stringify(localSettings.value) !== JSON.stringify(store.settings))
+
+const validationErrors = computed(() => validateSettings(localSettings.value))
+const validationMessages = computed(() => Object.values(validationErrors.value))
+
 const hasChanges = computed(() => {
   if (hasInvalidAllocations.value) return false
-  return JSON.stringify(localSettings.value) !== JSON.stringify(store.settings)
+  if (hasSettingsErrors(validationErrors.value)) return false
+  return isDirty.value
+})
+
+onBeforeRouteLeave((_to, _from, next) => {
+  if (!isDirty.value || window.confirm('Discard unsaved settings changes?')) {
+    next()
+  } else {
+    next(false)
+  }
 })
 
 const hasInvalidAllocations = computed(() => {
   return Object.values(localSettings.value.weeklyAllocations).some(
-    (val: any) => val === null || val === undefined || val === '' || (typeof val === 'number' && isNaN(val))
+    (val: unknown) => val === null || val === undefined || val === '' || (typeof val === 'number' && isNaN(val))
   )
 })
 
@@ -99,12 +116,12 @@ const activeDb = ref<DatabaseType | null>(null)
 
 async function testConnection() {
   connectionStatus.value = 'testing'
-  api.setBaseUrl(localSettings.value.backendUrl)
+  const candidate = localSettings.value.backendUrl
   try {
-    const ok = await api.checkConnection()
+    const ok = await api.checkConnection(candidate)
     connectionStatus.value = ok ? 'connected' : 'failed'
     if (ok) {
-      const status = await api.getDbStatus()
+      const status = await api.getDbStatus(candidate)
       activeDb.value = status.active
     }
   } catch {
@@ -113,6 +130,7 @@ async function testConnection() {
 }
 
 function saveSettings() {
+  if (!hasChanges.value) return
   const prevMode = store.settings.backendMode
   const prevUrl = store.settings.backendUrl
   store.updateSettings(localSettings.value)
@@ -125,60 +143,9 @@ function saveSettings() {
   close()
 }
 
-function exportData() {
-  const data = store.exportWeekData()
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `megagrind-week-${new Date().toISOString().split('T')[0]}.json`
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-function importData() {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = '.json'
-  input.onchange = (e) => {
-    const file = (e.target as HTMLInputElement).files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        try {
-          const data = JSON.parse(e.target?.result as string)
-          // Validate minimal shape before importing
-          if (!data || typeof data !== 'object' ||
-              !Array.isArray(data.entries) ||
-              !data.settings || typeof data.settings !== 'object' ||
-              typeof data.weekStart !== 'number') {
-            alert('Invalid file format: missing required fields')
-            return
-          }
-          store.importWeekData(data)
-          localSettings.value = { ...store.settings }
-          close()
-        } catch (err) {
-          alert('Invalid file format')
-        }
-      }
-      reader.readAsText(file)
-    }
-  }
-  input.click()
-}
-
 function clearAllData() {
-  if (confirm('Are you sure you want to clear all data? This cannot be undone.')) {
-    // Delete all entries (syncs each deletion to backend)
-    const ids = store.entries.map((e) => e.id)
-    for (const id of ids) {
-      store.deleteEntry(id)
-    }
-    // Reset progress check state so the countdown/red count/snooze/focus
-    // don't survive the wipe (nextCheckAt=null signals ProgressCheck to
-    // re-initialize the timer to a fresh interval).
-    store.resetProgressCheck()
+  if (confirm('Clear local tracked time, progress checks, and progress history on this device? This does not erase pending server work.')) {
+    store.clearLocalHistory()
     close()
   }
 }
@@ -202,8 +169,8 @@ function clearAllData() {
           <h3>Weekly Allocations (hours)</h3>
           <div class="allocation-grid">
             <div class="allocation-item">
-              <label>Sleep</label>
-              <input
+              <label for="settings-field-1">Sleep</label>
+              <input id="settings-field-1"
                 v-model.number="localSettings.weeklyAllocations.sleep"
                 type="number"
                 step="0.1"
@@ -212,8 +179,8 @@ function clearAllData() {
               />
             </div>
             <div class="allocation-item">
-              <label>Cook/Eat</label>
-              <input
+              <label for="settings-field-2">Cook/Eat</label>
+              <input id="settings-field-2"
                 v-model.number="localSettings.weeklyAllocations.cook"
                 type="number"
                 step="0.1"
@@ -222,8 +189,8 @@ function clearAllData() {
               />
             </div>
             <div class="allocation-item">
-              <label>Shower</label>
-              <input
+              <label for="settings-field-3">Shower</label>
+              <input id="settings-field-3"
                 v-model.number="localSettings.weeklyAllocations.shower"
                 type="number"
                 step="0.1"
@@ -232,8 +199,8 @@ function clearAllData() {
               />
             </div>
             <div class="allocation-item">
-              <label>Chores</label>
-              <input
+              <label for="settings-field-4">Chores</label>
+              <input id="settings-field-4"
                 v-model.number="localSettings.weeklyAllocations.chores"
                 type="number"
                 step="0.1"
@@ -242,8 +209,8 @@ function clearAllData() {
               />
             </div>
             <div class="allocation-item">
-              <label>Move</label>
-              <input
+              <label for="settings-field-5">Move</label>
+              <input id="settings-field-5"
                 v-model.number="localSettings.weeklyAllocations.move"
                 type="number"
                 step="0.1"
@@ -252,8 +219,8 @@ function clearAllData() {
               />
             </div>
             <div class="allocation-item">
-              <label>Leisure</label>
-              <input
+              <label for="settings-field-6">Leisure</label>
+              <input id="settings-field-6"
                 v-model.number="localSettings.weeklyAllocations.leisure"
                 type="number"
                 step="0.1"
@@ -262,8 +229,8 @@ function clearAllData() {
               />
             </div>
             <div class="allocation-item">
-              <label>Unexpected</label>
-              <input
+              <label for="settings-field-7">Unexpected</label>
+              <input id="settings-field-7"
                 v-model.number="localSettings.weeklyAllocations.unexpected"
                 type="number"
                 step="0.1"
@@ -272,8 +239,8 @@ function clearAllData() {
               />
             </div>
             <div class="allocation-item">
-              <label>Buffer</label>
-              <input
+              <label for="settings-field-8">Buffer</label>
+              <input id="settings-field-8"
                 v-model.number="localSettings.weeklyAllocations.buffer"
                 type="number"
                 step="0.1"
@@ -281,9 +248,9 @@ function clearAllData() {
                 max="168"
               />
             </div>
-            <div v-for="chrono in localSettings.customChronos" :key="chrono" class="allocation-item">
-              <label>{{ chrono.charAt(0).toUpperCase() + chrono.slice(1) }}</label>
-              <input
+            <div v-for="(chrono, customIndex) in localSettings.customChronos" :key="chrono" class="allocation-item">
+              <label :for="`${allocPrefix}-custom-${customIndex}`">{{ chrono.charAt(0).toUpperCase() + chrono.slice(1) }}</label>
+              <input :id="`${allocPrefix}-custom-${customIndex}`"
                 v-model.number="localSettings.weeklyAllocations[chrono]"
                 type="number"
                 step="0.1"
@@ -298,7 +265,7 @@ function clearAllData() {
             <div class="category-list">
               <div v-for="chrono in localSettings.customChronos" :key="chrono" class="category-tag">
                 <span>{{ chrono.charAt(0).toUpperCase() + chrono.slice(1) }}</span>
-                <button class="tag-remove" @click="removeCustomChrono(chrono, $event)" title="Remove (hold Shift to skip confirmation)">
+                <button class="tag-remove" :aria-label="`Remove ${chrono}`" @click="removeCustomChrono(chrono, $event)" title="Remove (hold Shift to skip confirmation)">
                   <X class="tag-remove-icon" />
                 </button>
               </div>
@@ -306,6 +273,7 @@ function clearAllData() {
             <div class="category-add-row">
               <input
                 v-model="newCustomChrono"
+                aria-label="Add custom activity"
                 type="text"
                 placeholder="New chrono (e.g. meditation)"
                 class="category-add-input"
@@ -332,6 +300,7 @@ function clearAllData() {
           <div class="category-add-row">
             <input
               v-model="newChoreCategory"
+              aria-label="Add chore type"
               type="text"
               placeholder="New chore type (e.g. vacuuming)"
               class="category-add-input"
@@ -357,6 +326,7 @@ function clearAllData() {
           <div class="category-add-row">
             <input
               v-model="newWorkCategory"
+              aria-label="Add work type"
               type="text"
               placeholder="New work type (e.g. design)"
               class="category-add-input"
@@ -373,8 +343,8 @@ function clearAllData() {
           <h3>Week Rollover</h3>
           <div class="rollover-settings">
             <div class="rollover-item">
-              <label>Day</label>
-              <select v-model.number="localSettings.weekRolloverDay">
+              <label for="settings-field-10">Day</label>
+              <select id="settings-field-10" v-model.number="localSettings.weekRolloverDay">
                 <option :value="0">Sunday</option>
                 <option :value="1">Monday</option>
                 <option :value="2">Tuesday</option>
@@ -385,8 +355,8 @@ function clearAllData() {
               </select>
             </div>
             <div class="rollover-item">
-              <label title="The hour when your tracking week starts (0-23)">Hour</label>
-              <input
+              <label title="The hour when your tracking week starts (0-23)" for="settings-field-11">Hour</label>
+              <input id="settings-field-11"
                 v-model.number="localSettings.weekRolloverHour"
                 type="number"
                 min="0"
@@ -399,22 +369,22 @@ function clearAllData() {
         <div class="settings-section">
           <h3>Notifications</h3>
           <div class="toggle-item">
-            <label>Browser notifications</label>
-            <input
+            <label for="settings-field-12">Browser notifications</label>
+            <input id="settings-field-12"
               v-model="localSettings.notificationsEnabled"
               type="checkbox"
             />
           </div>
           <div class="toggle-item">
-            <label>Sound alerts</label>
-            <input
+            <label for="settings-field-13">Sound alerts</label>
+            <input id="settings-field-13"
               v-model="localSettings.soundEnabled"
               type="checkbox"
             />
           </div>
           <div class="toggle-item">
-            <label>Idle time tracking</label>
-            <input
+            <label for="settings-field-14">Idle time tracking</label>
+            <input id="settings-field-14"
               v-model="localSettings.idleTimeEnabled"
               type="checkbox"
             />
@@ -424,8 +394,8 @@ function clearAllData() {
         <div class="settings-section">
           <h3>Progress Check</h3>
           <div class="toggle-item">
-            <label>Enable progress check</label>
-            <input
+            <label for="settings-field-15">Enable progress check</label>
+            <input id="settings-field-15"
               v-model="localSettings.progressCheckEnabled"
               type="checkbox"
             />
@@ -433,8 +403,8 @@ function clearAllData() {
           <div class="subsection">
             <h4>Focus Mode</h4>
             <div class="focus-setting">
-              <label>Duration (minutes)</label>
-              <input
+              <label for="settings-field-16">Duration (minutes)</label>
+              <input id="settings-field-16"
                 v-model.number="localSettings.focusModeDuration"
                 type="number"
                 min="15"
@@ -446,8 +416,8 @@ function clearAllData() {
           <div class="subsection">
             <h4>Check Interval</h4>
             <div class="focus-setting">
-              <label>Interval (minutes)</label>
-              <input
+              <label for="settings-field-17">Interval (minutes)</label>
+              <input id="settings-field-17"
                 v-model.number="localSettings.progressCheckInterval"
                 type="number"
                 min="5"
@@ -461,8 +431,8 @@ function clearAllData() {
         <div class="settings-section">
           <h3>Appearance</h3>
           <div class="appearance-setting">
-            <label>Theme</label>
-            <select v-model="localSettings.darkMode">
+            <label for="settings-field-18">Theme</label>
+            <select id="settings-field-18" v-model="localSettings.darkMode">
               <option value="auto">Auto</option>
               <option value="dark">Dark</option>
               <option value="light">Light</option>
@@ -481,7 +451,7 @@ function clearAllData() {
                   type="radio"
                   value="local"
                 />
-                <span>Local (Simplest)</span>
+                <span>Local on this device</span>
               </label>
               <label class="mode-option">
                 <input
@@ -489,16 +459,25 @@ function clearAllData() {
                   type="radio"
                   value="sqlite"
                 />
-                <span>SQLite (Turnkey)</span>
+                <span>Optional private server (SQLite)</span>
               </label>
             </div>
+            <p class="storage-status" data-test="storage-status">
+              <template v-if="store.settings.backendMode === 'local'">
+                Saved on this device only. Tracking works without a server.
+              </template>
+              <template v-else>
+                Tracking keeps working if the server is unreachable.
+                {{ store.pendingSyncCount }} change(s) waiting to send. No sync confirmation has been recorded yet.
+              </template>
+            </p>
           </div>
 
           <div v-if="localSettings.backendMode !== 'local'" class="backend-config">
             <div class="backend-url-row">
               <div class="backend-url-input">
-                <label>Backend URL</label>
-                <input
+                <label for="settings-field-19">Backend URL</label>
+                <input id="settings-field-19"
                   v-model="localSettings.backendUrl"
                   type="text"
                   placeholder="http://localhost:3000"
@@ -525,25 +504,25 @@ function clearAllData() {
         </div>
 
         <div class="settings-section">
+          <h3>Backup and restore</h3>
+          <BackupPanel />
+        </div>
+
+        <div class="settings-section">
           <h3>Data Management</h3>
           <div class="data-actions">
-            <button class="btn-export" @click="exportData">
-              <Download class="btn-icon" />
-              Export Data
-            </button>
-            <button class="btn-import" @click="importData">
-              <Upload class="btn-icon" />
-              Import Data
-            </button>
             <button class="btn-clear" @click="clearAllData">
               <Trash2 class="btn-icon" />
-              Clear All Data
+              Clear local tracking history
             </button>
           </div>
         </div>
       </div>
 
       <div class="settings-footer">
+        <ul v-if="validationMessages.length" class="settings-errors" role="alert" data-test="settings-errors">
+          <li v-for="message in validationMessages" :key="message">{{ message }}</li>
+        </ul>
         <button class="btn-cancel" @click="close">Cancel</button>
         <button class="btn-save" :class="{ disabled: !hasChanges || hasInvalidAllocations }" :disabled="!hasChanges || hasInvalidAllocations" @click="saveSettings">Save Settings</button>
       </div>
@@ -658,7 +637,6 @@ function clearAllData() {
   flex-direction: column;
   gap: 0.5rem;
   background-color: var(--bg-tertiary);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill-rule='evenodd'%3E%3Cg fill='oklch(0.6 0.18 300)' fill-opacity='0.15'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
   padding: 0.75rem;
   border-radius: 8px;
 }
@@ -1193,5 +1171,62 @@ function clearAllData() {
 .btn-add-icon {
   width: 14px;
   height: 14px;
+}
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.status-badge.status-ok {
+  --_button-surface: var(--color-primary);
+  background: var(--_button-surface);
+  color: var(--color-on-primary);
+}
+
+.status-badge.status-fail {
+  --_button-surface: var(--color-danger);
+  background: var(--_button-surface);
+  color: var(--color-on-danger);
+}
+
+@supports (color: contrast-color(red)) {
+  .status-badge.status-ok,
+  .status-badge.status-fail {
+    color: contrast-color(var(--_button-surface));
+  }
+}
+
+@media (max-width: 480px) {
+  .settings-section input:not([type='radio']):not([type='checkbox']),
+  .settings-section select {
+    width: 100%;
+    min-width: 0;
+    font-size: 1rem;
+  }
+
+  .backend-url-row {
+    flex-wrap: wrap;
+  }
+
+  .backend-url-input {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .settings-footer {
+    flex-wrap: wrap;
+  }
+
+  .settings-errors {
+    flex: 1 1 100%;
+    margin: 0;
+    padding-left: 18px;
+    color: var(--color-danger-text);
+  }
 }
 </style>

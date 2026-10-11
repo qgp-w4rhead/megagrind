@@ -76,10 +76,14 @@ function onStopClick() {
   stop()
 }
 
+function requestDelete(id: string) {
+  if (window.confirm('Delete this entry?')) store.deleteEntry(id)
+}
+
 function onManualSave(entry: {
   type: TrackerType
   start: number
-  end: number
+  end: number | null
   description?: string
   category?: string
 }) {
@@ -179,7 +183,10 @@ function onManualSave(entry: {
       @close="showManual = false"
     />
 
-    <EntryList :entries="history" @delete="store.deleteEntry" />
+    <EntryList
+      :entries="history"
+      @request-delete="requestDelete"
+    />
   </div>
 </template>
 

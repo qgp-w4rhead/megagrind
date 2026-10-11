@@ -15,6 +15,40 @@ export interface TimeEntry {
   balancedWith?: string | null
 }
 
+export interface TimeRange {
+  start: number
+  end: number
+}
+
+export interface EntrySlice {
+  entry: TimeEntry
+  start: number
+  end: number
+  duration: number
+  isAdjustment: boolean
+  isRunning: boolean
+}
+
+export interface ActivityDefinition {
+  id: TrackerType
+  label: string
+  favorite: boolean
+  archived: boolean
+  order: number
+}
+
+export interface Goal {
+  policy: 'none' | 'target' | 'minimum' | 'budget'
+  hours: number
+}
+
+export interface ProgressEvent {
+  id: string
+  sessionId: string
+  at: number
+  outcome: 'progress' | 'blocked' | 'skipped' | 'snoozed'
+}
+
 export interface WeekData {
   version: number
   weekStart: number
@@ -81,10 +115,14 @@ export const DEFAULT_SETTINGS: Settings = {
   focusModeDuration: 90,
   progressCheckInterval: 15,
   darkMode: 'auto',
-  backendMode: 'sqlite',
-  backendUrl: 'http://localhost:3000',
+  backendMode: 'local',
+  backendUrl: '',
   idleTimeEnabled: true,
   progressCheckEnabled: true,
+}
+
+export function createDefaultSettings(): Settings {
+  return structuredClone(DEFAULT_SETTINGS)
 }
 
 export const TRACKER_LABELS: Record<string, string> = {

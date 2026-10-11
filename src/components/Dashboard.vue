@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useMegagrindStore } from '../stores/megagrind'
-import { TRACKER_LABELS } from '../types'
+import { activityLabel } from '../domain/labels'
+import type { TrackerType } from '../types'
 import { BarChart3, Clock, TrendingUp, AlertCircle } from 'lucide-vue-next'
+
+defineOptions({ name: 'InsightsDashboard' })
 
 const store = useMegagrindStore()
 
@@ -11,12 +14,13 @@ const weeklyStats = computed(() => {
   
   Object.keys(store.settings.weeklyAllocations).forEach((key) => {
     if (key === 'idle') return
-    const total = store.getTotalTimeForType(key as any)
+    const total = store.getTotalTimeForType(key as TrackerType)
     const allowance = (store.settings.weeklyAllocations[key] ?? 0) * 60 * 60 * 1000
+    const name = activityLabel(key)
     stats[key] = {
       total,
       allowance,
-      label: TRACKER_LABELS[key] || key.charAt(0).toUpperCase() + key.slice(1),
+      label: name === key ? key.charAt(0).toUpperCase() + key.slice(1) : name,
     }
   })
 
@@ -48,9 +52,10 @@ const progressPercentage = computed(() => {
 })
 
 const redCount = computed(() => store.progressCheck.redCount)
+const blockedToday = computed(() => store.todayBlockedCount)
 
 const timeCorrectionBalance = computed(() => {
-  const threeMinutesAgo = Date.now() - 3 * 60 * 1000
+  const threeMinutesAgo = store.now - 3 * 60 * 1000
   const recentCorrections = store.entries.filter(e =>
     e.isCorrection &&
     e.end !== null &&
@@ -112,25 +117,25 @@ function getBarColor(total: number, allowance: number): string {
         <div class="card-content">
           <span class="card-label">Work This Week</span>
           <span class="card-value">{{ workHours }}h</span>
-          <span class="card-sub">of {{ remainingWorkHours }}h remaining</span>
+          <span class="card-sub">{{ remainingWorkHours }}h budget left (reference only)</span>
         </div>
       </div>
 
       <div class="summary-card progress-card">
         <TrendingUp class="card-icon" />
         <div class="card-content">
-          <span class="card-label">Weekly Progress</span>
+          <span class="card-label">Work vs capacity reference</span>
           <span class="card-value">{{ progressPercentage }}%</span>
-          <span class="card-sub">of work goal</span>
+          <span class="card-sub">of unallocated budget, reference only</span>
         </div>
       </div>
 
       <div class="summary-card reds-card" v-if="store.settings.progressCheckEnabled">
         <AlertCircle class="card-icon" />
         <div class="card-content">
-          <span class="card-label">Red Checks Today</span>
-          <span class="card-value">{{ redCount }}</span>
-          <span class="card-sub">{{ redCount >= 3 ? 'Take a walk!' : 'Keep going' }}</span>
+          <span class="card-label">Blocked checks recorded today</span>
+          <span class="card-value" data-test="blocked-today">{{ blockedToday }}</span>
+          <span class="card-sub" data-test="blocked-streak">Blocked streak: {{ redCount }}</span>
         </div>
       </div>
     </div>
@@ -167,12 +172,9 @@ function getBarColor(total: number, allowance: number): string {
         <span class="stat-number">{{ totalAllocated.toFixed(1) }}h</span>
       </div>
       <div class="stat-box">
-        <h4>Available for Work</h4>
-        <span class="stat-number">{{ (168 - totalAllocated).toFixed(1) }}h/168h</span>
-      </div>
-      <div class="stat-box">
-        <h4>Bill Gates Target</h4>
-        <span class="stat-number">{{ (168 - totalAllocated).toFixed(1) }}h/100h</span>
+        <h4>Unallocated budget (reference)</h4>
+        <span class="stat-number">{{ (168 - totalAllocated).toFixed(1) }}h of 168h</span>
+        <p class="stat-note">Capacity arithmetic from your allocations. Not a goal or recommendation.</p>
       </div>
     </div>
 

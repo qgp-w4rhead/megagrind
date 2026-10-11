@@ -12,7 +12,7 @@ export interface DbStatus {
 // Backend config lives in the megagrind store (persisted under 'megagrind-store').
 // These refs are set by the store via setBaseUrl/setBackendMode — no separate
 // localStorage keys, so there is a single source of truth.
-const baseUrl = ref('http://localhost:3000')
+const baseUrl = ref('')
 const backendMode = ref<BackendMode>('local')
 const isBackendAvailable = ref(false)
 
@@ -28,11 +28,12 @@ async function request<T>(
   path: string,
   options: RequestInit = {},
   timeoutMs = 10000,
+  base: string = baseUrl.value,
 ): Promise<T> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const res = await fetch(`${baseUrl.value}${path}`, {
+    const res = await fetch(`${base}${path}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -52,7 +53,15 @@ async function request<T>(
   }
 }
 
-async function checkConnection(): Promise<boolean> {
+async function checkConnection(candidateUrl?: string): Promise<boolean> {
+  if (candidateUrl !== undefined) {
+    try {
+      await request<{ status: string }>('/api/health', {}, 10000, candidateUrl)
+      return true
+    } catch {
+      return false
+    }
+  }
   try {
     await request<{ status: string }>('/api/health')
     isBackendAvailable.value = true
@@ -63,8 +72,8 @@ async function checkConnection(): Promise<boolean> {
   }
 }
 
-async function getDbStatus(): Promise<DbStatus> {
-  return request<DbStatus>('/api/db/status')
+async function getDbStatus(candidateUrl?: string): Promise<DbStatus> {
+  return request<DbStatus>('/api/db/status', {}, 10000, candidateUrl ?? baseUrl.value)
 }
 
 async function switchDatabase(type: DatabaseType): Promise<DbStatus> {

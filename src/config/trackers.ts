@@ -54,11 +54,15 @@ export const TRACKER_CONFIG: Record<string, TrackerConfig> = {
   },
 }
 
+function ownValue<T>(record: Record<string, T>, key: string): T | undefined {
+  return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined
+}
+
 export function getTrackerConfig(type: TrackerType): TrackerConfig {
   return (
-    TRACKER_CONFIG[type] ?? {
+    ownValue(TRACKER_CONFIG, type) ?? {
       label:
-        TRACKER_LABELS[type] ?? type.charAt(0).toUpperCase() + type.slice(1),
+        ownValue(TRACKER_LABELS, type) ?? type.charAt(0).toUpperCase() + type.slice(1),
       icon: Clock,
       accent: '#8a8f98',
     }

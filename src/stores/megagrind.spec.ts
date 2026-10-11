@@ -114,7 +114,7 @@ describe('sync queue', () => {
   it('persists the queue to localStorage', async () => {
     const store = sqliteStore()
     store.startSession('work')
-    // pinia-plugin-persistedstate writes asynchronously after mutation
+    // The custom persistence plugin writes on the deep domain-state watcher.
     await nextTick()
     await new Promise((r) => setTimeout(r, 10))
     const raw = localStorage.getItem('megagrind-store')

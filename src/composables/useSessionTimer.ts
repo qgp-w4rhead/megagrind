@@ -1,4 +1,4 @@
-import { ref, computed, onScopeDispose, unref, type Ref } from 'vue'
+import { computed, unref, type Ref } from 'vue'
 import { useMegagrindStore } from '../stores/megagrind'
 import type { TrackerType } from '../types'
 
@@ -11,12 +11,6 @@ export function useSessionTimer(type: TrackerType | Ref<TrackerType>) {
   const store = useMegagrindStore()
   const trackerType = computed(() => unref(type))
 
-  const now = ref(Date.now())
-  const interval = setInterval(() => {
-    now.value = Date.now()
-  }, 1000)
-  onScopeDispose(() => clearInterval(interval))
-
   const openEntry = computed(
     () =>
       store.entries.find(
@@ -28,7 +22,7 @@ export function useSessionTimer(type: TrackerType | Ref<TrackerType>) {
 
   const elapsed = computed(() => {
     if (!openEntry.value) return 0
-    return Math.max(0, now.value - openEntry.value.start)
+    return Math.max(0, store.now - openEntry.value.start)
   })
 
   const todayTotal = computed(() =>
