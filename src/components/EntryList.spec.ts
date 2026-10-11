@@ -33,11 +33,22 @@ describe('EntryList', () => {
     expect(wrapper.text()).toContain('planning')
   })
 
-  it('emits delete with the entry id', async () => {
+  it('requests deletion with the entry id instead of deleting immediately', async () => {
     const entries = [entry({ id: 'a' }), entry({ id: 'b' })]
     const wrapper = mount(EntryList, { props: { entries } })
     await wrapper.findAll('[data-test="delete-entry"]')[1]!.trigger('click')
-    expect(wrapper.emitted('delete')).toEqual([['b']])
+    expect(wrapper.emitted('request-delete')).toEqual([['b']])
+    expect(wrapper.emitted('delete')).toBeUndefined()
+  })
+
+  it('emits edit with the entry id and gives both actions accessible names', async () => {
+    const entries = [entry({ id: 'a' })]
+    const wrapper = mount(EntryList, { props: { entries } })
+    const edit = wrapper.find('[data-test="edit-entry"]')
+    expect(edit.attributes('aria-label')).toMatch(/^Edit entry at /)
+    await edit.trigger('click')
+    expect(wrapper.emitted('edit')).toEqual([['a']])
+    expect(wrapper.find('[data-test="delete-entry"]').attributes('aria-label')).toMatch(/^Delete entry at /)
   })
 
   it('renders an empty state when there are no entries', () => {

@@ -1,17 +1,188 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useMegagrindStore } from './stores/megagrind'
 import AppNav from './components/AppNav.vue'
+import AppDialog from './components/AppDialog.vue'
+import ActivityPicker from './components/ActivityPicker.vue'
+import ManualEntryDialog from './components/ManualEntryDialog.vue'
+import NowBar from './components/NowBar.vue'
+import ProgressCheck from './components/ProgressCheck.vue'
+import { useProgressScheduler } from './composables/useProgressScheduler'
+import { useShellLayout } from './composables/useShellLayout'
+import { activityChoices } from './domain/activities'
+import { activityLabel } from './domain/labels'
+import { formatDuration } from './domain/today'
+import { downloadRecoveryCopy } from './stores/persistencePlugin'
+import type { TimeEntry, TrackerType } from './types'
+import type { AddEntryEvent, EntryRef, StartActivityEvent } from './types/appEvents'
+
+interface EntryPayload {
+  id?: string
+  type: TrackerType
+  start: number
+  end: number | null
+  description?: string
+  category?: string
+}
 
 const store = useMegagrindStore()
 store.migrateSettings()
+useProgressScheduler(store)
+
+const shellEl = ref<HTMLElement | null>(null)
+useShellLayout(() => shellEl.value)
+
+const feedback = ref('')
+const pickerOpen = ref(false)
+const editor = ref<{ entry: TimeEntry | null; type: TrackerType } | null>(null)
+const pendingDeleteId = ref<string | null>(null)
+const pendingDelete = computed<TimeEntry | null>(() => store.entries.find((e) => e.id === pendingDeleteId.value) ?? null)
+const undo = ref<{ entry: TimeEntry; label: string } | null>(null)
+const editorDirty = ref(false)
+const router = useRouter()
+
+const choices = computed(() => activityChoices(store.settings.customChronos ?? [], store.entries.map((e) => e.type)))
+const activeEntry = computed(() => store.entries.find((e) => e.end === null && e.type !== 'idle') ?? null)
+
+function labelOf(type: TrackerType): string {
+  return activityLabel(type)
+}
+
+function categoriesFor(type: TrackerType): string[] | undefined {
+  if (type === 'work') return store.settings.workCategories
+  if (type === 'chores') return store.settings.choreCategories
+  return undefined
+}
+
+function startActivity(event: StartActivityEvent) {
+  const wasRunning = store.activeSession.type !== null
+  store.startSession(event.type, event.description, event.category)
+  pickerOpen.value = false
+  feedback.value = `${wasRunning ? 'Switched to' : 'Started'} ${labelOf(event.type)}.`
+}
+
+function openCreate(event: AddEntryEvent) {
+  editor.value = { entry: null, type: event.type ?? 'work' }
+}
+
+function openEdit(ref: EntryRef) {
+  const entry = store.entries.find((e) => e.id === ref.id)
+  if (entry) editor.value = { entry, type: entry.type }
+}
+
+function openEditActive() {
+  const entry = activeEntry.value
+  if (entry) editor.value = { entry, type: entry.type }
+}
+
+function closeEditor() {
+  if (editorDirty.value && !window.confirm('Discard unsaved changes to this entry?')) return
+  editor.value = null
+  editorDirty.value = false
+}
+
+const removeNavigationGuard = router.beforeEach(() => {
+  if (editor.value && editorDirty.value) {
+    if (!window.confirm('Discard unsaved changes to this entry?')) return false
+    editor.value = null
+    editorDirty.value = false
+  }
+  return true
+})
+
+onBeforeUnmount(() => {
+  removeNavigationGuard()
+})
+
+function saveEntry(payload: EntryPayload) {
+  const fields = {
+    type: payload.type,
+    start: payload.start,
+    end: payload.end,
+    description: payload.description,
+    category: payload.category,
+  }
+  if (payload.id) {
+    const current = store.entries.find((e) => e.id === payload.id)
+    if (current && current.end === null && payload.end !== null && current.type !== 'idle') {
+      store.stopSession()
+    }
+    store.updateEntry(payload.id, fields)
+  } else {
+    store.addManualEntry(fields)
+  }
+  editor.value = null
+  editorDirty.value = false
+  feedback.value = store.saveSucceeded('Entry')
+}
+
+function requestDelete(ref: EntryRef) {
+  const entry = store.entries.find((e) => e.id === ref.id)
+  if (!entry) return
+  if (entry.end === null) {
+    feedback.value = 'Finish the running entry with Stop or Edit before deleting it.'
+    return
+  }
+  pendingDeleteId.value = entry.id
+}
+
+function cancelDelete() {
+  pendingDeleteId.value = null
+}
+
+function confirmDelete() {
+  const entry = pendingDelete.value
+  if (!entry) return
+  if (entry.end === null) {
+    pendingDeleteId.value = null
+    feedback.value = 'Finish the running entry with Stop or Edit before deleting it.'
+    return
+  }
+  undo.value = { entry: { ...entry }, label: labelOf(entry.type) }
+  store.deleteEntry(entry.id)
+  pendingDeleteId.value = null
+  feedback.value = store.saveSucceeded('Entry deletion')
+}
+
+function undoDelete() {
+  if (!undo.value) return
+  const error = store.restoreEntry(undo.value.entry)
+  if (error) {
+    feedback.value = error
+    return
+  }
+  feedback.value = store.saveSucceeded('Entry restore')
+  undo.value = null
+}
+
+function retryStorage() {
+  store.retryPersistence()
+}
+
+function exportStorageCopy() {
+  if (!downloadRecoveryCopy()) feedback.value = 'No stored recovery copy is available to export.'
+}
+
+const systemLight = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+  ? window.matchMedia('(prefers-color-scheme: light)')
+  : null
+
+function onSystemThemeChange() {
+  if (store.settings.darkMode === 'auto') updateTheme()
+}
 
 onMounted(() => {
   store.resetStaleProgressCheck()
   updateTheme()
+  systemLight?.addEventListener('change', onSystemThemeChange)
   // Load remote entries/settings when a backend is configured.
   // Returns early in local mode. Errors are logged inside.
   store.initFromBackend()
+})
+
+onBeforeUnmount(() => {
+  systemLight?.removeEventListener('change', onSystemThemeChange)
 })
 
 function updateTheme() {
@@ -30,324 +201,221 @@ watch(() => store.settings.darkMode, updateTheme)
 </script>
 
 <template>
-  <div class="app">
-    <header class="header">
-      <div class="header-left">
-        <h1 class="title">MEGAGRIND</h1>
-        <span class="subtitle">Work more than Bill Gates</span>
+  <div ref="shellEl" class="app">
+    <a href="#main" class="skip-link">Skip to content</a>
+
+    <header class="app-header">
+      <div class="app-brand">
+        <p class="app-brand-name">MEGAGRIND</p>
+        <p class="app-brand-tagline">Personal time tracking</p>
       </div>
-      <AppNav />
+      <AppNav class="app-header-nav" />
     </header>
 
-    <main class="main">
-      <router-view />
+    <div class="app-now" data-test="app-now">
+      <NowBar @switch="pickerOpen = true" @edit="openEditActive" />
+    </div>
+
+    <main id="main" class="app-main" tabindex="-1">
+      <ProgressCheck v-if="store.settings.progressCheckEnabled" />
+      <router-view v-slot="{ Component }">
+        <component
+          :is="Component"
+          @start-activity="startActivity"
+          @open-activities="pickerOpen = true"
+          @add-entry="openCreate"
+          @edit-entry="openEdit"
+          @delete-entry="requestDelete"
+        />
+      </router-view>
     </main>
+
+    <div v-if="store.persistenceState !== 'ready'" class="storage-warning" role="alert" data-test="storage-warning">
+      <p>
+        <strong>{{ store.persistenceState === 'recovery' ? 'Storage needs recovery' : 'Temporary memory-only tracking' }}</strong>
+        — {{ store.persistenceError ?? 'Browser storage could not save this session.' }}
+      </p>
+      <div class="storage-warning-actions">
+        <button type="button" class="btn-action" data-test="storage-retry" @click="retryStorage">Retry storage</button>
+        <button type="button" class="btn-action" data-test="storage-export" @click="exportStorageCopy">Export recovery copy</button>
+        <RouterLink class="btn-action" to="/settings">Open restore settings</RouterLink>
+      </div>
+    </div>
+
+    <p v-if="feedback" class="app-feedback" role="status">
+      {{ feedback }}
+      <button
+        v-if="undo"
+        type="button"
+        class="btn-action"
+        data-test="undo-delete"
+        @click="undoDelete"
+      >
+        Undo delete of {{ undo.label }}
+      </button>
+    </p>
+
+    <AppDialog :show="pickerOpen" title="All activities" @close="pickerOpen = false">
+      <ActivityPicker
+        v-if="pickerOpen"
+        :activities="choices"
+        :current-type="store.currentSessionType"
+        :work-categories="store.settings.workCategories"
+        :chore-categories="store.settings.choreCategories"
+        @start="startActivity"
+        @cancel="pickerOpen = false"
+      />
+    </AppDialog>
+
+    <AppDialog
+      :show="editor !== null"
+      :title="editor?.entry ? 'Edit entry' : 'Add missed time'"
+      @close="closeEditor"
+    >
+      <ManualEntryDialog
+        v-if="editor"
+        :show="true"
+        :type="editor.type"
+        :entry="editor.entry ?? undefined"
+        :categories="categoriesFor(editor.type)"
+        :activities="choices"
+        @save="saveEntry"
+        @dirty="editorDirty = $event"
+        @close="closeEditor"
+      />
+    </AppDialog>
+
+    <AppDialog :show="pendingDelete !== null" title="Delete entry?" @close="cancelDelete">
+      <p>
+        This removes the {{ pendingDelete ? labelOf(pendingDelete.type) : '' }} entry
+        ({{ pendingDelete ? formatDuration((pendingDelete.end ?? store.now) - pendingDelete.start) : '' }}).
+        You can undo right after.
+      </p>
+      <template #footer>
+        <button type="button" class="btn-action" data-test="delete-cancel" @click="cancelDelete">Cancel</button>
+        <button type="button" class="btn-danger" data-test="delete-confirm" @click="confirmDelete">Delete</button>
+      </template>
+    </AppDialog>
   </div>
 </template>
 
 <style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
 .app {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
+  font-family: var(--font-ui);
+  background: var(--color-page);
+  color: var(--color-text);
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  line-height: 1.5;
-  scroll-behavior: smooth;
-  -webkit-tap-highlight-color: transparent;
-}
-
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-body.dark {
-  --bg-primary: #0f0f1a;
-  --bg-secondary: #1a1a2e;
-  --bg-tertiary: #2a2a4e;
-  --bg-hover: #3a3a6e;
-  --text-primary: #e2e8f0;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --border-color: #2a2a4e;
-  --accent-purple: #a78bfa;
-  --accent-purple-hover: #8b5cf6;
-  --accent-green: #4ade80;
-  --accent-red: #f87171;
-  --accent-yellow: #fbbf24;
-  --accent-cyan: #38bdf8;
-  --accent-cyan-hover: #0ea5e9;
-}
-
-body.light {
-  --bg-primary: #f8fafc;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #e2e8f0;
-  --bg-hover: #f1f5f9;
-  --text-primary: #1e293b;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
-  --border-color: #e2e8f0;
-  --accent-purple: #8b5cf6;
-  --accent-purple-hover: #7c3aed;
-  --accent-green: #22c55e;
-  --accent-red: #ef4444;
-  --accent-yellow: #eab308;
-  --accent-cyan: #0ea5e9;
-  --accent-cyan-hover: #0284c7;
-}
-
-body {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--bg-tertiary);
-  border-radius: 5px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--accent-purple);
-}
-
-.header {
+.app-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1.5rem 2rem;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  gap: 16px;
+  padding: 14px 20px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-subtle);
+  min-width: 0;
 }
 
-.header-left {
+.app-brand {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
-.title {
-  font-size: 1.5rem;
-  font-weight: 800;
-  color: var(--accent-purple);
-  letter-spacing: -0.02em;
-  margin: 0;
+.app-brand-name {
+  font-size: 1.125rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  color: var(--color-primary);
 }
 
-.subtitle {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+.app-brand-tagline {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
 }
 
-.header-right {
+.app-header-nav {
+  min-width: 0;
+}
+
+.app-now {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 10px 20px;
+  background: var(--color-page);
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  padding: 20px;
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 20px;
+  outline: none;
 }
 
-.header-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: nowrap;
-}
-
-.work-summary {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-}
-
-.summary-label {
-  color: var(--text-muted);
-}
-
-.summary-value {
-  font-weight: 700;
-  color: var(--accent-green);
-  font-variant-numeric: tabular-nums;
-}
-
-.summary-divider {
-  color: var(--text-muted);
-}
-
-.summary-remaining {
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-.icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.5rem;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
+.storage-warning,
+.app-feedback {
+  margin: 0 20px 12px;
+  padding: 10px 12px;
   border-radius: 8px;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.icon-btn:hover {
-  background: var(--bg-hover);
-}
-
-.btn-icon {
-  width: 20px;
-  height: 20px;
-}
-
-.main {
-  flex: 1;
-  padding: 2rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
   display: flex;
-  flex-direction: column;
-  gap: 2rem;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
-.desktop-only {
-  display: none !important;
+.storage-warning {
+  border-color: var(--color-danger);
+  justify-content: space-between;
 }
 
-@media (min-width: 769px) {
-  .desktop-only {
-    display: grid !important;
-  }
-}
-
-.trackers-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1.5rem;
-}
-
-.work-idle-row {
+.storage-warning-actions {
   display: flex;
-  gap: 2rem;
-  align-items: stretch;
-  min-height: 250px;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.work-section,
-.chores-section,
-.idle-section {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-}
-
-
-
-.work-section > *,
-.chores-section > *,
-.idle-section > * {
-  flex: 1;
-}
-
-@media (max-width: 768px) {
-  .header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1rem;
-    padding: 1rem;
-    padding-top: calc(1rem + env(safe-area-inset-top));
+@media (max-width: 767px) {
+  .app-header {
+    padding: 10px 14px;
   }
 
-  .header-right {
-    width: 100%;
-    justify-content: space-between;
-    align-items: center;
-    gap: 0.75rem;
+  .app-now {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--bottom-nav-h, 64px);
+    top: auto;
+    padding: 4px 8px;
+    border-top: 1px solid var(--color-border-subtle);
   }
 
-  .header-actions {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: nowrap;
+  .app-main {
+    padding: 14px;
+    padding-bottom: calc(14px + var(--now-bar-h, 76px) + var(--bottom-nav-h, 64px));
   }
 
-  .work-summary {
-    font-size: 0.75rem;
-    flex-wrap: wrap;
-  }
-
-  .main {
-    padding: 1rem;
-    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
-  }
-
-  .trackers-grid {
-    grid-template-columns: 1fr;
-    gap: 1rem;
-  }
-
-  .work-idle-row {
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .work-section,
-  .chores-section,
-  .idle-section {
-    min-height: auto;
-  }
-
-  
-
-  .work-section:not(:last-child),
-  .chores-section:not(:last-child) {
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--border-color);
+  .storage-warning,
+  .app-feedback {
+    margin: 0 14px 12px;
   }
 }
 
-@media (max-width: 480px) {
-  .title {
-    font-size: 1.25rem;
-  }
-
-  .subtitle {
-    font-size: 0.625rem;
-  }
-
-  .work-summary {
-    font-size: 0.6875rem;
-    gap: 0.375rem;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .summary-value {
-    font-size: 0.8125rem;
-  }
-
-  .main {
-    padding: 0.75rem;
-    gap: 1rem;
-  }
-
-  .trackers-grid {
-    gap: 0.75rem;
+@media (min-width: 768px) {
+  .app-main {
+    padding: 24px 28px;
   }
 }
+
 </style>

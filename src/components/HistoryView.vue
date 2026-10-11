@@ -2,10 +2,18 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMegagrindStore } from '../stores/megagrind'
-import { TRACKER_LABELS } from '../types'
-import type { TimeEntry } from '../types'
+import { dayRange } from '../domain/time'
+import { activityLabel } from '../domain/labels'
+import type { EntrySlice, TimeEntry } from '../types'
 import { getTrackerConfig } from '../config/trackers'
-import { Calendar, ChevronLeft, ChevronRight, X } from 'lucide-vue-next'
+import { Calendar, ChevronLeft, ChevronRight, X, Pencil } from 'lucide-vue-next'
+import type { AddEntryEvent, EntryRef } from '../types/appEvents'
+
+const emit = defineEmits<{
+  'edit-entry': [ref: EntryRef]
+  'add-entry': [event: AddEntryEvent]
+  'delete-entry': [ref: EntryRef]
+}>()
 
 const router = useRouter()
 function close() {
@@ -46,14 +54,10 @@ const daysInMonth = computed<DayCell[]>(() => {
   }
   for (let i = 1; i <= totalDays; i++) {
     const date = new Date(year, month, i)
-    const dayStart = new Date(year, month, i).setHours(0, 0, 0, 0)
-    const dayEnd = new Date(year, month, i).setHours(23, 59, 59, 999)
+    const range = dayRange(date.getTime())
     // Aggregate every tracked type — not just work.
-    const dayEntries = store.entries.filter(
-      (e) => e.end !== null && e.start >= dayStart && e.start <= dayEnd,
-    )
-    const types = [...new Set(dayEntries.map((e) => e.type))]
-    const totalMs = dayEntries.reduce((sum, e) => sum + (e.end! - e.start), 0)
+    const types = [...new Set(store.getEntrySlices(range).map((s) => s.entry.type))]
+    const totalMs = store.getTotalTimeForRange(range)
     days.push({ day: i, date, types, totalMs })
   }
   return days
@@ -64,15 +68,13 @@ const monthName = computed(() => {
 })
 
 const selectedDate = ref<Date | null>(null)
-const selectedDayEntries = computed(() => {
+const selectedDayEntries = computed<EntrySlice[]>(() => {
   if (!selectedDate.value) return []
-  const dayStart = new Date(selectedDate.value).setHours(0, 0, 0, 0)
-  const dayEnd = new Date(selectedDate.value).setHours(23, 59, 59, 999)
-  return store.entries.filter((e) => e.end !== null && e.start >= dayStart && e.start <= dayEnd)
+  return store.getEntrySlices(dayRange(selectedDate.value.getTime()))
 })
 
 type TimelineItem =
-  | { kind: 'entry'; entry: TimeEntry }
+  | { kind: 'entry'; slice: EntrySlice }
   | { kind: 'gap'; start: number; end: number }
 
 // Chronological timeline of the day's entries with untracked gaps
@@ -81,12 +83,16 @@ const dayTimeline = computed<TimelineItem[]>(() => {
   const sorted = [...selectedDayEntries.value].sort((a, b) => a.start - b.start)
   const items: TimelineItem[] = []
   let prevEnd: number | null = null
-  for (const e of sorted) {
-    if (prevEnd !== null && e.start > prevEnd) {
-      items.push({ kind: 'gap', start: prevEnd, end: e.start })
+  for (const slice of sorted) {
+    if (slice.isAdjustment) {
+      items.push({ kind: 'entry', slice })
+      continue
     }
-    items.push({ kind: 'entry', entry: e })
-    prevEnd = Math.max(prevEnd ?? 0, e.end ?? e.start)
+    if (prevEnd !== null && slice.start > prevEnd) {
+      items.push({ kind: 'gap', start: prevEnd, end: slice.start })
+    }
+    items.push({ kind: 'entry', slice })
+    prevEnd = Math.max(prevEnd ?? slice.end, slice.end)
   }
   return items
 })
@@ -109,10 +115,15 @@ function nextMonth() {
   currentMonth.value = new Date(currentMonth.value.getFullYear(), currentMonth.value.getMonth() + 1)
 }
 
-function selectDay(day: any) {
+function selectDay(day: DayCell) {
   if (day.day) {
     selectedDate.value = day.date
   }
+}
+
+function dayAriaLabel(date: Date, totalMs: number): string {
+  const day = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+  return totalMs > 0 ? `${day}, ${formatDayTotal(totalMs)} recorded` : `${day}, nothing recorded`
 }
 
 function formatTime(ms: number): string {
@@ -126,32 +137,30 @@ function formatTime(ms: number): string {
   return `${minutes}m`
 }
 
-function formatEntryTime(entry: any): string {
+function formatEntryTime(entry: Pick<TimeEntry, 'start'>): string {
   const date = new Date(entry.start)
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function getEntryLabel(entry: any): string {
+function getEntryLabel(entry: TimeEntry): string {
   if ((entry.type === 'work' || entry.type === 'chores') && entry.category) {
-    const base = TRACKER_LABELS[entry.type as keyof typeof TRACKER_LABELS] || entry.type
+    const base = activityLabel(entry.type)
     const cat = entry.category.charAt(0).toUpperCase() + entry.category.slice(1)
     return `${base} – ${cat}`
   }
-  return TRACKER_LABELS[entry.type as keyof typeof TRACKER_LABELS] || entry.type
+  return activityLabel(entry.type)
+}
+
+function formatSignedTime(ms: number): string {
+  return ms < 0 ? `-${formatTime(-ms)}` : formatTime(ms)
 }
 
 function getDayTotal(date: Date): number {
-  const dayStart = new Date(date).setHours(0, 0, 0, 0)
-  const dayEnd = new Date(date).setHours(23, 59, 59, 999)
-  return store.entries
-    .filter((e) => e.end !== null && e.start >= dayStart && e.start <= dayEnd)
-    .reduce((sum, e) => sum + (e.end! - e.start), 0)
+  return store.getTotalTimeForRange(dayRange(date.getTime()))
 }
 
-function deleteEntry(entryId: string, e?: MouseEvent) {
-  if (e?.shiftKey || confirm('Are you sure you want to delete this entry?')) {
-    store.deleteEntry(entryId)
-  }
+function deleteEntry(entryId: string) {
+  emit('delete-entry', { id: entryId })
 }
 </script>
 
@@ -163,17 +172,17 @@ function deleteEntry(entryId: string, e?: MouseEvent) {
           <Calendar class="header-icon" />
           <h2>History</h2>
         </div>
-        <button class="close-btn" @click="close">
+        <button type="button" class="close-btn" aria-label="Close History" @click="close">
           <X class="close-icon" />
         </button>
       </div>
 
       <div class="calendar-controls">
-        <button class="nav-btn" @click="previousMonth">
+        <button type="button" class="nav-btn" aria-label="Previous month" @click="previousMonth">
           <ChevronLeft class="nav-icon" />
         </button>
         <span class="month-label">{{ monthName }}</span>
-        <button class="nav-btn" @click="nextMonth">
+        <button type="button" class="nav-btn" aria-label="Next month" @click="nextMonth">
           <ChevronRight class="nav-icon" />
         </button>
       </div>
@@ -187,9 +196,10 @@ function deleteEntry(entryId: string, e?: MouseEvent) {
           {{ header }}
         </div>
 
-        <div
+        <button
           v-for="(day, index) in daysInMonth"
           :key="index"
+          type="button"
           class="calendar-day"
           :class="{
             'has-data': day.types.length > 0,
@@ -197,6 +207,11 @@ function deleteEntry(entryId: string, e?: MouseEvent) {
             'empty': !day.day
           }"
           :data-test="day.day ? `day-${day.day}` : 'day-blank'"
+          :disabled="!day.day"
+          :tabindex="day.day ? undefined : -1"
+          :aria-hidden="day.day ? undefined : 'true'"
+          :aria-label="day.date ? dayAriaLabel(day.date, day.totalMs) : undefined"
+          :aria-pressed="day.date ? (selectedDate && selectedDate.getTime() === day.date.getTime() ? 'true' : 'false') : undefined"
           @click="selectDay(day)"
         >
           <template v-if="day.day">
@@ -212,7 +227,7 @@ function deleteEntry(entryId: string, e?: MouseEvent) {
               />
             </span>
           </template>
-        </div>
+        </button>
       </div>
 
       <div v-if="selectedDate" class="day-details">
@@ -223,12 +238,18 @@ function deleteEntry(entryId: string, e?: MouseEvent) {
           </button>
         </div>
 
+        <div class="day-actions">
+          <button type="button" class="btn-action" data-test="history-add-entry" @click="emit('add-entry', {})">
+            Add missed time
+          </button>
+        </div>
+
         <div v-if="selectedDayEntries.length === 0" class="no-entries">
           No entries for this day
         </div>
 
         <div v-else class="entries-list">
-          <template v-for="item in dayTimeline" :key="item.kind === 'entry' ? item.entry.id : `gap-${item.start}`">
+          <template v-for="item in dayTimeline" :key="item.kind === 'entry' ? item.slice.entry.id : `gap-${item.start}`">
             <div
               v-if="item.kind === 'gap'"
               class="entry-item gap-item"
@@ -246,20 +267,25 @@ function deleteEntry(entryId: string, e?: MouseEvent) {
               v-else
               class="entry-item"
               data-test="timeline-entry"
-              :data-entry-id="item.entry.id"
+              :data-entry-id="item.slice.entry.id"
             >
               <div class="entry-left">
                 <div class="entry-top-row">
-                  <span class="entry-time">{{ formatEntryTime(item.entry) }}</span>
-                  <span class="entry-label">{{ getEntryLabel(item.entry) }}</span>
+                  <span class="entry-time">{{ formatEntryTime(item.slice) }}</span>
+                  <span class="entry-label">{{ getEntryLabel(item.slice.entry) }}</span>
+                  <span v-if="item.slice.isAdjustment" class="entry-label adjustment-label">Adjustment</span>
+                  <span v-if="item.slice.isRunning" class="entry-label running-label">Running</span>
                 </div>
-                <div v-if="item.entry.description" class="entry-description">
-                  {{ item.entry.description }}
+                <div v-if="item.slice.entry.description" class="entry-description">
+                  {{ item.slice.entry.description }}
                 </div>
               </div>
               <div class="entry-right">
-                <div class="entry-duration">{{ formatTime(item.entry.end! - item.entry.start) }}</div>
-                <button class="delete-entry-btn" @click="(e) => deleteEntry(item.entry.id, e)" title="Delete entry (hold Shift to skip confirmation)">
+                <div class="entry-duration" data-test="entry-duration">{{ formatSignedTime(item.slice.duration) }}</div>
+                <button type="button" class="btn-action" data-test="edit-history-entry" :aria-label="`Edit ${getEntryLabel(item.slice.entry)} entry`" @click="emit('edit-entry', { id: item.slice.entry.id })">
+                  <Pencil :size="14" aria-hidden="true" />
+                </button>
+                <button type="button" class="delete-entry-btn" :aria-label="`Delete ${getEntryLabel(item.slice.entry)} entry`" @click="deleteEntry(item.slice.entry.id)" title="Delete entry">
                   <X class="delete-icon" />
                 </button>
               </div>
@@ -269,7 +295,7 @@ function deleteEntry(entryId: string, e?: MouseEvent) {
 
         <div class="day-summary">
           <span class="summary-label">Total tracked:</span>
-          <span class="summary-value">{{ formatTime(getDayTotal(selectedDate)) }}</span>
+          <span class="summary-value">{{ formatSignedTime(getDayTotal(selectedDate)) }}</span>
         </div>
       </div>
     </div>
@@ -396,6 +422,11 @@ function deleteEntry(entryId: string, e?: MouseEvent) {
 
 .calendar-day {
   aspect-ratio: 1;
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  font: inherit;
+  background: transparent;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -624,5 +655,37 @@ function deleteEntry(entryId: string, e?: MouseEvent) {
   font-weight: 700;
   color: var(--accent-purple);
   font-variant-numeric: tabular-nums;
+}
+@media (max-width: 480px) {
+  .history-view {
+    margin-inline: -14px;
+    padding: 0;
+  }
+
+  .history-panel {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  .calendar-grid {
+    gap: 0;
+    padding: 0;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  .calendar-controls {
+    gap: 0.75rem;
+    padding: 0.75rem;
+  }
+
+  .day-details {
+    padding: 1rem;
+  }
+
+  .calendar-day {
+    aspect-ratio: auto;
+    min-height: 44px;
+  }
 }
 </style>

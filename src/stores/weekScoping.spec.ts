@@ -119,7 +119,7 @@ describe('getTotalTimeForType week scoping', () => {
     expect(store.getTotalTimeForType('work')).toBe(2 * H)
   })
 
-  it('entry crossing the boundary counts by its start (excluded if start < weekStart)', () => {
+  it('entry crossing the boundary counts its overlap with the week', () => {
     at(2026, 8, 9, 15)
     const store = localStore()
     store.settings.weekRolloverDay = 0
@@ -128,16 +128,21 @@ describe('getTotalTimeForType week scoping', () => {
       // starts Sat 23:00 (before Sun 00:00 weekStart), ends Sun 01:00 — excluded
       entry({ id: 'cross', type: 'work', start: new Date(2026, 8, 5, 23).getTime(), end: new Date(2026, 8, 6, 1).getTime() }),
     )
-    expect(store.getTotalTimeForType('work')).toBe(0)
+    expect(store.getTotalTimeForType('work')).toBe(3_600_000)
+    expect(store.entries[0]).toMatchObject({
+      id: 'cross',
+      start: new Date(2026, 8, 5, 23).getTime(),
+      end: new Date(2026, 8, 6, 1).getTime(),
+    })
   })
 
-  it('excludes open (running) entries from totals', () => {
+  it('includes open (running) entries live up to now', () => {
     at(2026, 8, 9, 15)
     const store = localStore()
     store.entries.push(
       entry({ id: 'open', type: 'work', start: new Date(2026, 8, 9, 10).getTime(), end: null }),
     )
-    expect(store.getTotalTimeForType('work')).toBe(0)
+    expect(store.getTotalTimeForType('work')).toBe(5 * 3_600_000)
   })
 
   it('scopes per type — other types unaffected', () => {

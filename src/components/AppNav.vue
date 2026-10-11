@@ -1,20 +1,19 @@
 <script setup lang="ts">
 import { Timer, LayoutDashboard, Calendar, Settings } from 'lucide-vue-next'
+
+const destinations = [
+  { to: '/', label: 'Today', icon: Timer },
+  { to: '/dashboard', label: 'Insights', icon: LayoutDashboard },
+  { to: '/history', label: 'History', icon: Calendar },
+  { to: '/settings', label: 'Settings', icon: Settings },
+]
 </script>
 
 <template>
-  <nav class="app-nav">
-    <RouterLink to="/" class="nav-link">
-      <Timer :size="16" /> Track
-    </RouterLink>
-    <RouterLink to="/dashboard" class="nav-link">
-      <LayoutDashboard :size="16" /> Dashboard
-    </RouterLink>
-    <RouterLink to="/history" class="nav-link">
-      <Calendar :size="16" /> History
-    </RouterLink>
-    <RouterLink to="/settings" class="nav-link">
-      <Settings :size="16" /> Settings
+  <nav class="app-nav" aria-label="Primary">
+    <RouterLink v-for="item in destinations" :key="item.to" :to="item.to" class="app-nav-link">
+      <component :is="item.icon" :size="20" aria-hidden="true" class="app-nav-icon" />
+      <span class="app-nav-label">{{ item.label }}</span>
     </RouterLink>
   </nav>
 </template>
@@ -25,27 +24,61 @@ import { Timer, LayoutDashboard, Calendar, Settings } from 'lucide-vue-next'
   gap: 4px;
 }
 
-.nav-link {
+.app-nav-link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 44px;
+  min-width: 44px;
   padding: 6px 12px;
   border-radius: 8px;
-  color: var(--text-muted, #888);
+  color: var(--color-text-muted);
   text-decoration: none;
-  font-size: 0.8rem;
-  transition:
-    color 0.15s ease,
-    background 0.15s ease;
+  font-size: 0.875rem;
 }
 
-.nav-link:hover {
-  color: var(--text-primary, #e2e8f0);
-  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+.app-nav-link:hover {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
 }
 
-.nav-link.router-link-active {
-  color: var(--accent-purple, #a78bfa);
-  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+.app-nav-link[aria-current='page'] {
+  color: var(--color-text);
+  font-weight: 650;
+  box-shadow: inset 0 -3px 0 var(--color-primary);
+}
+
+@media (max-width: 767px) {
+  .app-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  .app-nav-link {
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    min-width: 0;
+    padding: 6px 2px;
+    font-size: 0.75rem;
+    text-align: center;
+  }
+
+  .app-nav-link[aria-current='page'] {
+    box-shadow: inset 0 3px 0 var(--color-primary);
+  }
+
+  .app-nav-label {
+    overflow-wrap: anywhere;
+  }
 }
 </style>

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { TimeEntry } from '../types'
-import { X } from 'lucide-vue-next'
+import { X, Pencil } from 'lucide-vue-next'
 
 defineProps<{ entries: TimeEntry[] }>()
-const emit = defineEmits<{ delete: [id: string] }>()
+const emit = defineEmits<{ 'request-delete': [id: string]; edit: [id: string] }>()
 
 function formatTime(ms: number): string {
   const seconds = Math.floor(ms / 1000)
@@ -43,12 +43,24 @@ function formatEntryTime(entry: TimeEntry): string {
       <div class="entry-right">
         <span class="entry-duration">{{ formatTime(entry.end! - entry.start) }}</span>
         <button
-          class="delete-btn"
-          data-test="delete-entry"
-          title="Delete entry"
-          @click="emit('delete', entry.id)"
+          type="button"
+          class="icon-action"
+          data-test="edit-entry"
+          :aria-label="`Edit entry at ${formatEntryTime(entry)}`"
+          title="Edit entry"
+          @click="emit('edit', entry.id)"
         >
-          <X :size="14" />
+          <Pencil :size="14" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          class="icon-action icon-danger"
+          data-test="delete-entry"
+          :aria-label="`Delete entry at ${formatEntryTime(entry)}`"
+          title="Delete entry"
+          @click="emit('request-delete', entry.id)"
+        >
+          <X :size="14" aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -64,8 +76,8 @@ function formatEntryTime(entry: TimeEntry): string {
 }
 
 .empty-state {
-  font-size: 0.75rem;
-  color: var(--text-muted, #888);
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
   padding: 4px 0;
 }
 
@@ -73,57 +85,61 @@ function formatEntryTime(entry: TimeEntry): string {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 6px;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  background: var(--color-surface-raised);
+  min-width: 0;
 }
 
 .entry-left {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: baseline;
   min-width: 0;
 }
 
 .entry-time {
-  color: var(--text-muted, #888);
+  color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
 }
 
 .entry-category {
-  color: var(--accent, #4f8ef0);
   text-transform: capitalize;
 }
 
 .entry-description {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .entry-right {
   display: flex;
   gap: 6px;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .entry-duration {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
-.delete-btn {
-  display: flex;
+.icon-action {
+  display: inline-flex;
   align-items: center;
-  border: none;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
   background: transparent;
-  color: var(--text-muted, #888);
+  color: var(--color-text);
   cursor: pointer;
-  padding: 2px;
-  border-radius: 4px;
 }
 
-.delete-btn:hover {
-  color: #e05a5a;
+.icon-danger:hover {
+  color: var(--color-danger);
 }
 </style>
