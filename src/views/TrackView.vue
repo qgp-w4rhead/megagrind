@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { LayoutGrid, List } from 'lucide-vue-next'
 import { useMegagrindStore } from '../stores/megagrind'
 import DayRibbon from '../components/DayRibbon.vue'
 import { activityLabel } from '../domain/labels'
+import { getTrackerConfig } from '../config/trackers'
 import type { TrackerType } from '../types'
 import type { AddEntryEvent, EntryRef, StartActivityEvent } from '../types/appEvents'
 import { favoriteActivities, lastCategory } from '../domain/activities'
@@ -19,6 +21,8 @@ const emit = defineEmits<{
 
 const store = useMegagrindStore()
 
+const favoritesListView = ref(false)
+
 const presentation = computed(() => todayPresentation(store.entries, store.now))
 const favorites = computed(() => favoriteActivities(store.entries))
 const recent = computed(() => recentFinishedEntries(store.entries, 5))
@@ -28,6 +32,14 @@ const dateLabel = computed(() =>
 
 function labelOf(type: TrackerType): string {
   return activityLabel(type)
+}
+
+function iconOf(type: TrackerType) {
+  return getTrackerConfig(type).icon
+}
+
+function accentOf(type: TrackerType): string {
+  return getTrackerConfig(type).accent
 }
 
 function startFavorite(type: TrackerType) {
@@ -81,8 +93,36 @@ function entryDuration(e: { start: number; end: number | null }): string {
     </section>
 
     <section class="today-start" aria-labelledby="today-start-heading">
-      <h2 id="today-start-heading" class="section-heading">Start</h2>
-      <div class="favorite-grid">
+      <div class="start-head">
+        <h2 id="today-start-heading" class="section-heading">Start</h2>
+        <button
+          type="button"
+          class="start-view-toggle"
+          data-test="favorite-view-toggle"
+          :aria-pressed="favoritesListView"
+          :aria-label="favoritesListView ? 'Show favorites as icons' : 'Show favorites as list'"
+          :title="favoritesListView ? 'Icon view' : 'List view'"
+          @click="favoritesListView = !favoritesListView"
+        >
+          <component :is="favoritesListView ? LayoutGrid : List" :size="18" aria-hidden="true" />
+        </button>
+      </div>
+      <div v-if="!favoritesListView" class="favorite-icons">
+        <button
+          v-for="type in favorites"
+          :key="type"
+          type="button"
+          class="favorite-icon"
+          data-test="favorite"
+          :title="`Start ${labelOf(type)}`"
+          :style="{ '--accent': accentOf(type) }"
+          @click="startFavorite(type)"
+        >
+          <component :is="iconOf(type)" :size="20" aria-hidden="true" />
+          <span class="sr-only">{{ labelOf(type) }}</span>
+        </button>
+      </div>
+      <div v-else class="favorite-grid">
         <button
           v-for="type in favorites"
           :key="type"
@@ -204,6 +244,61 @@ function entryDuration(e: { start: number; end: number | null }): string {
   font-weight: 650;
   color: var(--color-text-muted);
   margin-bottom: 8px;
+}
+
+.start-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.start-head .section-heading {
+  margin-bottom: 0;
+}
+
+.start-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.start-view-toggle:hover,
+.start-view-toggle[aria-pressed='true'] {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
+
+.favorite-icons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.favorite-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--accent, var(--color-text-muted));
+  cursor: pointer;
+}
+
+.favorite-icon:hover {
+  border-color: var(--accent, var(--color-border));
+  background: color-mix(in oklch, var(--accent, var(--color-border)) 14%, var(--color-surface));
 }
 
 .favorite-grid {
