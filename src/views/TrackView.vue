@@ -104,7 +104,12 @@ function entryDuration(e: { start: number; end: number | null }): string {
       </div>
     </section>
 
-    <DayRibbon v-if="presentation.segments.length" :segments="presentation.segments" />
+    <DayRibbon
+      v-if="presentation.segments.length"
+      :segments="presentation.segments"
+      :day="presentation.day"
+      :now="store.now"
+    />
     <p v-else class="today-empty" data-test="today-empty">
       Nothing recorded yet today. Start an activity or add missed time.
     </p>
