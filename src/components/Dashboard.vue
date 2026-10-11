@@ -2,8 +2,9 @@
 import { computed } from 'vue'
 import { useMegagrindStore } from '../stores/megagrind'
 import { activityLabel } from '../domain/labels'
+import ProgressCheckDetails from './ProgressCheckDetails.vue'
 import type { TrackerType } from '../types'
-import { BarChart3, Clock, TrendingUp, AlertCircle } from 'lucide-vue-next'
+import { BarChart3, Clock, TrendingUp } from 'lucide-vue-next'
 
 defineOptions({ name: 'InsightsDashboard' })
 
@@ -50,9 +51,6 @@ const progressPercentage = computed(() => {
   const percentage = (total / (60 * 60 * 1000)) / workAllocation * 100
   return Math.min(100, Math.max(0, percentage)).toFixed(1)
 })
-
-const redCount = computed(() => store.progressCheck.redCount)
-const blockedToday = computed(() => store.todayBlockedCount)
 
 const timeCorrectionBalance = computed(() => {
   const threeMinutesAgo = store.now - 3 * 60 * 1000
@@ -129,15 +127,6 @@ function getBarColor(total: number, allowance: number): string {
           <span class="card-sub">of unallocated budget, reference only</span>
         </div>
       </div>
-
-      <div class="summary-card reds-card" v-if="store.settings.progressCheckEnabled">
-        <AlertCircle class="card-icon" />
-        <div class="card-content">
-          <span class="card-label">Blocked checks recorded today</span>
-          <span class="card-value" data-test="blocked-today">{{ blockedToday }}</span>
-          <span class="card-sub" data-test="blocked-streak">Blocked streak: {{ redCount }}</span>
-        </div>
-      </div>
     </div>
 
     <div class="allocation-chart">
@@ -193,6 +182,8 @@ function getBarColor(total: number, allowance: number): string {
         </div>
       </div>
     </div>
+
+    <ProgressCheckDetails v-if="store.settings.progressCheckEnabled" />
   </div>
 </template>
 

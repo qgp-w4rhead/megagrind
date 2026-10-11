@@ -25,7 +25,7 @@ describe('Dashboard', () => {
     store.recordProgressCheck(true)
     const wrapper = mount(Dashboard)
     expect(wrapper.find('[data-test="blocked-today"]').text()).toBe('2')
-    expect(wrapper.find('[data-test="blocked-streak"]').text()).toBe('Blocked streak: 0')
+    expect(wrapper.find('[data-test="blocked-streak"]').text()).toBe('0')
     expect(wrapper.text()).not.toMatch(/Bill Gates|of work goal|Weekly Progress|Red Checks/)
   })
 })

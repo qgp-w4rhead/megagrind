@@ -2,9 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMegagrindStore } from './stores/megagrind'
-import AppNav from './components/AppNav.vue'
-import AppDialog from './components/AppDialog.vue'
 import ActivityPicker from './components/ActivityPicker.vue'
+import AppDialog from './components/AppDialog.vue'
+import AppNav from './components/AppNav.vue'
+import FocusToggle from './components/FocusToggle.vue'
 import ManualEntryDialog from './components/ManualEntryDialog.vue'
 import NowBar from './components/NowBar.vue'
 import ProgressCheck from './components/ProgressCheck.vue'
@@ -217,6 +218,10 @@ watch(() => store.settings.darkMode, updateTheme)
         <p class="app-brand-name">MEGAGRIND</p>
         <p class="app-brand-tagline">Personal time tracking</p>
       </div>
+      <div class="app-header-actions">
+        <FocusToggle v-if="store.settings.progressCheckEnabled" />
+        <button type="button" class="btn-primary" data-test="app-start-activity" @click="pickerOpen = true">Start activity</button>
+      </div>
       <AppNav class="app-header-nav" />
     </header>
 
@@ -356,13 +361,20 @@ watch(() => store.settings.darkMode, updateTheme)
 
 .app-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 8px 16px;
   padding: 14px 20px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border-subtle);
   min-width: 0;
+}
+
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .app-brand {
@@ -495,5 +507,4 @@ watch(() => store.settings.darkMode, updateTheme)
     padding: 24px 28px;
   }
 }
-
 </style>
