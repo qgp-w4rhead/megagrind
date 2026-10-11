@@ -68,13 +68,11 @@ function formatTime(ms: number): string {
         <span class="now-idle">Idle being tracked</span>
         <span class="now-elapsed" data-test="now-elapsed">{{ formatTime(idleElapsed) }}</span>
       </div>
-      <button type="button" class="btn-primary" data-test="now-switch" @click="emit('switch')">Start activity</button>
     </template>
     <template v-else>
       <div class="now-summary">
         <span class="now-idle">Nothing tracked right now</span>
       </div>
-      <button type="button" class="btn-primary" data-test="now-switch" @click="emit('switch')">Start activity</button>
     </template>
   </div>
 </template>
@@ -144,8 +142,7 @@ function formatTime(ms: number): string {
   margin-left: auto;
 }
 
-.now-actions .btn-action,
-.now-actions .btn-primary {
+.now-actions .btn-action {
   min-height: 44px;
 }
 
@@ -202,8 +199,7 @@ function formatTime(ms: number): string {
     margin-left: 0;
   }
 
-  .now-actions .btn-action,
-  .now-actions .btn-primary {
+  .now-actions .btn-action {
     min-width: 0;
     padding: 0 8px;
   }

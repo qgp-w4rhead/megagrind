@@ -38,6 +38,12 @@ export function coveredDuration(slices: readonly EntrySlice[]): number {
   return total
 }
 
+export function formatCountdown(ms: number): string {
+  const minutes = Math.floor(ms / 60000)
+  const seconds = Math.floor((ms % 60000) / 1000)
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
 export function dayRange(at: number): TimeRange {
   const start = new Date(at)
   start.setHours(0, 0, 0, 0)
