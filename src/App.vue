@@ -9,6 +9,7 @@ import FocusToggle from './components/FocusToggle.vue'
 import ManualEntryDialog from './components/ManualEntryDialog.vue'
 import NowBar from './components/NowBar.vue'
 import ProgressCheck from './components/ProgressCheck.vue'
+import SyncStatus from './components/SyncStatus.vue'
 import { useProgressScheduler } from './composables/useProgressScheduler'
 import { useShellLayout } from './composables/useShellLayout'
 import { useTabCoordination } from './composables/useTabCoordination'
@@ -168,6 +169,29 @@ function resolveSessionConflict(keepId: string | null) {
   feedback.value = error ?? store.saveSucceeded('Running sessions')
 }
 
+const syncConflictDialogOpen = ref(false)
+watch(
+  () => store.syncConflicts.length,
+  (count, prev) => {
+    if (count > 0 && prev === 0) syncConflictDialogOpen.value = true
+  },
+)
+
+function resolveSyncConflict(resource: string, choice: 'keep-local' | 'keep-remote') {
+  store.resolveSyncConflict(resource, choice)
+  if (store.syncConflicts.length === 0) syncConflictDialogOpen.value = false
+  feedback.value = choice === 'keep-local' ? 'Your change will be sent to the server.' : 'The server version was applied locally.'
+}
+
+function describeConflict(conflict: { remoteKind: string }): string {
+  switch (conflict.remoteKind) {
+    case 'entry': return 'the server has a different version'
+    case 'tombstone': return 'it was deleted on the server'
+    case 'preferences': return 'the server has different preferences'
+    default: return 'the server has no record of it'
+  }
+}
+
 function exportStorageCopy() {
   if (!downloadRecoveryCopy()) feedback.value = 'No stored recovery copy is available to export.'
 }
@@ -220,6 +244,7 @@ watch(() => store.settings.darkMode, updateTheme)
       </div>
       <div class="app-header-actions">
         <FocusToggle v-if="store.settings.progressCheckEnabled" />
+        <SyncStatus />
         <button type="button" class="btn-primary" data-test="app-start-activity" @click="pickerOpen = true">Start activity</button>
       </div>
       <AppNav class="app-header-nav" />
@@ -308,6 +333,43 @@ watch(() => store.settings.darkMode, updateTheme)
         <button type="button" class="btn-action" data-test="delete-cancel" @click="cancelDelete">Cancel</button>
         <button type="button" class="btn-danger" data-test="delete-confirm" @click="confirmDelete">Delete</button>
       </template>
+    </AppDialog>
+
+    <AppDialog
+      :show="syncConflictDialogOpen"
+      title="Resolve sync conflicts"
+      @close="syncConflictDialogOpen = false"
+    >
+      <p>
+        Changes on this device and on the server diverged. Choose which version to keep
+        for each item — nothing is merged silently.
+      </p>
+      <ul class="conflict-list">
+        <li v-for="conflict in store.syncConflicts" :key="conflict.resource" class="conflict-card">
+          <div class="conflict-info">
+            <span class="conflict-label">{{ conflict.label }}</span>
+            <span class="conflict-meta">{{ describeConflict(conflict) }}</span>
+          </div>
+          <div class="conflict-actions">
+            <button
+              type="button"
+              class="btn-primary"
+              :data-test="`sync-keep-local-${conflict.resource}`"
+              @click="resolveSyncConflict(conflict.resource, 'keep-local')"
+            >
+              Keep mine
+            </button>
+            <button
+              type="button"
+              class="btn-action"
+              :data-test="`sync-keep-remote-${conflict.resource}`"
+              @click="resolveSyncConflict(conflict.resource, 'keep-remote')"
+            >
+              Use server's
+            </button>
+          </div>
+        </li>
+      </ul>
     </AppDialog>
 
     <AppDialog
@@ -474,6 +536,13 @@ watch(() => store.settings.darkMode, updateTheme)
 .conflict-meta {
   color: var(--color-text-muted);
   font-size: 0.875rem;
+}
+
+.conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 @media (max-width: 767px) {

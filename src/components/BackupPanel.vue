@@ -172,7 +172,11 @@ function apply() {
           <input :id="replaceId" v-model="replaceMode" type="checkbox" data-test="replace-mode" @change="refreshPreview" />
           <span>Replace local records instead of merging</span>
         </label>
-        <p v-if="replaceMode" class="warning-list">This will remove {{ preview.removed.length }} local record(s) not present in the file.</p>
+        <p v-if="replaceMode" class="warning-list">
+          This will remove {{ preview.removed.length }} local record(s) not present in the file.
+          When sync is on, removed records are also deleted on the server and queued changes
+          for replaced records are superseded.
+        </p>
         <label v-if="replaceMode" class="check-row">
           <input v-model="replaceConfirmed" type="checkbox" data-test="replace-confirm" />
           <span>I saved a recovery copy and approve removing the listed local records.</span>
