@@ -80,7 +80,7 @@ function mountHistoryApp() {
 
 async function openDayWithFirstEntry(day: number) {
   const { router, wrapper } = mountHistoryApp()
-  await router.push('/history')
+  await router.push('/history?view=calendar')
   await router.isReady()
   await flushPromises()
   await wrapper.find(`[data-test="day-${day}"]`).trigger('click')

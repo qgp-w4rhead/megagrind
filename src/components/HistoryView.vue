@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useMegagrindStore } from '../stores/megagrind'
 import { dayRange } from '../domain/time'
 import { activityLabel } from '../domain/labels'
+import { dayBuckets, EMPTY_FILTER, filterEntries, isFilterEmpty, type HistoryFilter } from '../domain/insights'
 import type { EntrySlice, TimeEntry } from '../types'
 import { getTrackerConfig } from '../config/trackers'
-import { Calendar, ChevronLeft, ChevronRight, X, Pencil } from 'lucide-vue-next'
+import { activityChoices } from '../domain/activities'
+import { Calendar, ChevronLeft, ChevronRight, List, Search, X, Pencil } from 'lucide-vue-next'
 import type { AddEntryEvent, EntryRef } from '../types/appEvents'
 
 const emit = defineEmits<{
@@ -16,12 +18,61 @@ const emit = defineEmits<{
 }>()
 
 const router = useRouter()
+const route = useRoute()
 function close() {
   router.push('/')
 }
 
 const store = useMegagrindStore()
 const currentMonth = ref(new Date())
+
+// --- List-first view + filters (M6.2) ---
+// Query params are the deep link from Insights: ?view=list|calendar&type=&category=&q=&day=YYYY-MM-DD
+const viewMode = ref<'list' | 'calendar'>(route.query.view === 'calendar' ? 'calendar' : 'list')
+const filter = ref<HistoryFilter>({
+  text: typeof route.query.q === 'string' ? route.query.q : '',
+  type: typeof route.query.type === 'string' ? route.query.type : null,
+  category: typeof route.query.category === 'string' ? route.query.category : null,
+  from: typeof route.query.from === 'string' ? route.query.from : null,
+  to: typeof route.query.to === 'string' ? route.query.to : null,
+})
+const LIST_LIMIT = 150
+
+const typeOptions = computed(() => activityChoices(store.settings.customChronos, store.entries.map((e) => e.type), store.settings.activities))
+const categoryOptions = computed(() => {
+  const cats = new Set<string>()
+  for (const e of store.entries) if (e.category) cats.add(`${e.type}:${e.category}`)
+  return [...cats].sort()
+})
+
+const filteredEntries = computed(() => filterEntries(store.entries, filter.value))
+// Newest first; bounded so long histories stay responsive.
+const listRows = computed(() => {
+  const sorted = [...filteredEntries.value].sort((a, b) => b.start - a.start || b.id.localeCompare(a.id))
+  return sorted.slice(0, LIST_LIMIT)
+})
+const hiddenCount = computed(() => Math.max(0, filteredEntries.value.length - listRows.value.length))
+const filtering = computed(() => !isFilterEmpty(filter.value))
+
+function selectDayFromList(entry: TimeEntry) {
+  selectedDate.value = new Date(dayRange(entry.start).start)
+  viewMode.value = 'calendar'
+}
+
+watch([viewMode, () => filter.value.text, () => filter.value.type, () => filter.value.category, () => filter.value.from, () => filter.value.to], () => {
+  const query: Record<string, string> = {}
+  if (viewMode.value === 'calendar') query.view = 'calendar'
+  if (filter.value.text.trim()) query.q = filter.value.text.trim()
+  if (filter.value.type) query.type = filter.value.type
+  if (filter.value.category) query.category = filter.value.category
+  if (filter.value.from) query.from = filter.value.from
+  if (filter.value.to) query.to = filter.value.to
+  router.replace({ path: '/history', query })
+})
+
+function clearFilters() {
+  filter.value = { ...EMPTY_FILTER }
+}
 
 const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -52,13 +103,15 @@ const daysInMonth = computed<DayCell[]>(() => {
   for (let i = 0; i < startDay; i++) {
     days.push({ day: null, date: null, types: [], totalMs: 0 })
   }
+  // Single pass over entries instead of a sliceEntries call per day.
+  const buckets = dayBuckets(store.entries, {
+    start: new Date(year, month, 1).getTime(),
+    end: new Date(year, month + 1, 1).getTime(),
+  }, store.now)
   for (let i = 1; i <= totalDays; i++) {
     const date = new Date(year, month, i)
-    const range = dayRange(date.getTime())
-    // Aggregate every tracked type — not just work.
-    const types = [...new Set(store.getEntrySlices(range).map((s) => s.entry.type))]
-    const totalMs = store.getTotalTimeForRange(range)
-    days.push({ day: i, date, types, totalMs })
+    const bucket = buckets.get(dayRange(date.getTime()).start)
+    days.push({ day: i, date, types: bucket?.types ?? [], totalMs: bucket?.totalMs ?? 0 })
   }
   return days
 })
@@ -68,6 +121,19 @@ const monthName = computed(() => {
 })
 
 const selectedDate = ref<Date | null>(null)
+// Deep link: ?day=YYYY-MM-DD opens that day's details (and the calendar around it).
+if (typeof route.query.day === 'string') {
+  const parts = route.query.day.split('-').map(Number)
+  const y = parts[0], m = parts[1], d = parts[2]
+  if (y !== undefined && m !== undefined && d !== undefined && y > 1970 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+    const date = new Date(y, m - 1, d)
+    if (!Number.isNaN(date.getTime())) {
+      selectedDate.value = date
+      currentMonth.value = date
+      viewMode.value = 'calendar'
+    }
+  }
+}
 const selectedDayEntries = computed<EntrySlice[]>(() => {
   if (!selectedDate.value) return []
   return store.getEntrySlices(dayRange(selectedDate.value.getTime()))
@@ -144,11 +210,11 @@ function formatEntryTime(entry: Pick<TimeEntry, 'start'>): string {
 
 function getEntryLabel(entry: TimeEntry): string {
   if ((entry.type === 'work' || entry.type === 'chores') && entry.category) {
-    const base = activityLabel(entry.type)
+    const base = activityLabel(entry.type, store.settings.activities)
     const cat = entry.category.charAt(0).toUpperCase() + entry.category.slice(1)
     return `${base} – ${cat}`
   }
-  return activityLabel(entry.type)
+  return activityLabel(entry.type, store.settings.activities)
 }
 
 function formatSignedTime(ms: number): string {
@@ -177,6 +243,100 @@ function deleteEntry(entryId: string) {
         </button>
       </div>
 
+      <div class="history-toolbar">
+        <div class="view-toggle" role="group" aria-label="History view">
+          <button
+            type="button"
+            class="kind-btn"
+            :class="{ active: viewMode === 'list' }"
+            :aria-pressed="viewMode === 'list'"
+            data-test="view-list"
+            @click="viewMode = 'list'"
+          ><List :size="16" aria-hidden="true" /> List</button>
+          <button
+            type="button"
+            class="kind-btn"
+            :class="{ active: viewMode === 'calendar' }"
+            :aria-pressed="viewMode === 'calendar'"
+            data-test="view-calendar"
+            @click="viewMode = 'calendar'"
+          ><Calendar :size="16" aria-hidden="true" /> Month</button>
+        </div>
+      </div>
+
+      <div v-if="viewMode === 'list'" class="filter-bar" role="search">
+        <div class="filter-field">
+          <Search :size="14" class="filter-icon" aria-hidden="true" />
+          <input
+            v-model="filter.text"
+            type="search"
+            class="filter-input"
+            placeholder="Search descriptions, categories…"
+            aria-label="Search history"
+            data-test="history-search"
+          />
+        </div>
+        <select v-model="filter.type" class="filter-select" aria-label="Filter by activity" data-test="history-type-filter">
+          <option :value="null">All activities</option>
+          <option v-for="t in typeOptions" :key="t" :value="t">{{ activityLabel(t, store.settings.activities) }}</option>
+        </select>
+        <label class="filter-date">
+          <span class="sr-only">From date</span>
+          <input v-model="filter.from" type="date" class="filter-select" aria-label="From date" data-test="history-from" />
+        </label>
+        <label class="filter-date">
+          <span class="sr-only">To date</span>
+          <input v-model="filter.to" type="date" class="filter-select" aria-label="To date" data-test="history-to" />
+        </label>
+        <select v-model="filter.category" class="filter-select" aria-label="Filter by category" data-test="history-category-filter">
+          <option :value="null">All categories</option>
+          <option v-for="c in categoryOptions" :key="c" :value="c.split(':')[1]">{{ c.split(':')[1] }}</option>
+        </select>
+        <button v-if="filtering" type="button" class="btn-action clear-btn" data-test="history-clear-filters" @click="clearFilters">
+          Clear filters
+        </button>
+      </div>
+
+      <div v-if="viewMode === 'list'" class="list-view">
+        <p v-if="filteredEntries.length === 0" class="no-entries" data-test="history-empty">
+          <template v-if="filtering">Nothing matches these filters. <button type="button" class="link-btn" @click="clearFilters">Clear filters</button></template>
+          <template v-else>No entries recorded yet.</template>
+        </p>
+        <template v-else>
+          <div
+            v-for="entry in listRows"
+            :key="entry.id"
+            class="entry-item"
+            data-test="history-row"
+          >
+            <div class="entry-left">
+              <div class="entry-top-row">
+                <button
+                  type="button"
+                  class="link-btn entry-day-link"
+                  :aria-label="`Open ${new Date(entry.start).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}`"
+                  :data-test="`open-day-${entry.id}`"
+                  @click="selectDayFromList(entry)"
+                >{{ new Date(entry.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }} · {{ formatEntryTime(entry) }}</button>
+                <span class="entry-label">{{ getEntryLabel(entry) }}</span>
+                <span v-if="entry.end === null" class="entry-label running-label">Running</span>
+              </div>
+              <div v-if="entry.description" class="entry-description">{{ entry.description }}</div>
+            </div>
+            <div class="entry-right">
+              <div class="entry-duration">{{ formatSignedTime((entry.end ?? store.now) - entry.start) }}</div>
+              <button type="button" class="btn-action" :aria-label="`Edit ${getEntryLabel(entry)} entry`" data-test="list-edit" @click="emit('edit-entry', { id: entry.id })">
+                <Pencil :size="14" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+          <p v-if="hiddenCount > 0" class="no-entries" data-test="history-more">
+            {{ hiddenCount }} more entr{{ hiddenCount === 1 ? 'y' : 'ies' }} — narrow with the filters above.
+          </p>
+        </template>
+      </div>
+
+      <template v-if="viewMode === 'calendar'">
       <div class="calendar-controls">
         <button type="button" class="nav-btn" aria-label="Previous month" @click="previousMonth">
           <ChevronLeft class="nav-icon" />
@@ -229,8 +389,9 @@ function deleteEntry(entryId: string) {
           </template>
         </button>
       </div>
+      </template>
 
-      <div v-if="selectedDate" class="day-details">
+      <div v-if="selectedDate && viewMode === 'calendar'" class="day-details">
         <div class="day-details-header">
           <h3>{{ selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) }}</h3>
           <button class="close-details-btn" @click="selectedDate = null">
@@ -656,10 +817,131 @@ function deleteEntry(entryId: string) {
   color: var(--accent-purple);
   font-variant-numeric: tabular-nums;
 }
+.history-toolbar {
+  display: flex;
+  justify-content: center;
+  padding: 0.75rem 1rem 0;
+}
+
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.kind-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.kind-btn.active {
+  background: var(--accent-purple);
+  color: var(--bg-primary);
+  font-weight: 600;
+}
+
+.filter-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.filter-field {
+  position: relative;
+  flex: 1 1 160px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.filter-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.filter-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 10px 0 30px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.filter-select {
+  min-height: 44px;
+  padding: 0 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.filter-date {
+  display: inline-flex;
+  align-items: center;
+}
+
+.clear-btn {
+  min-height: 44px;
+  font-size: 0.8125rem;
+}
+
+.list-view {
+  padding: 0.75rem 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.link-btn {
+  border: none;
+  background: none;
+  padding: 4px 0;
+  font: inherit;
+  color: var(--accent-purple);
+  cursor: pointer;
+  text-align: left;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+.entry-day-link {
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 @media (max-width: 480px) {
   .history-view {
     margin-inline: -14px;
     padding: 0;
+  }
+
+  .filter-bar,
+  .list-view {
+    padding-inline: 1rem;
   }
 
   .history-panel {

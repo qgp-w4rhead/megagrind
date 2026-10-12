@@ -11,11 +11,15 @@ function localStore() {
   return store
 }
 
-function mountView() {
+// The calendar tests exercise the month grid: history is list-first now, so
+// mount through the real ?view=calendar deep link to reach it.
+async function mountView(view: 'calendar' | 'list' = 'calendar') {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/', component: { template: '<div />' } }],
   })
+  await router.push({ path: '/', query: view === 'calendar' ? { view: 'calendar' } : {} })
+  await router.isReady()
   return mount(HistoryView, { global: { plugins: [router] } })
 }
 
@@ -46,7 +50,7 @@ describe('HistoryView month grid', () => {
       entry({ id: 'w', type: 'work', start: new Date(2026, 8, 9, 9).getTime(), end: new Date(2026, 8, 9, 11).getTime() }),
       entry({ id: 's', type: 'sleep', start: new Date(2026, 8, 9, 1).getTime(), end: new Date(2026, 8, 9, 7).getTime() }),
     )
-    const wrapper = mountView()
+    const wrapper = await mountView()
     const cell = wrapper.find('[data-test="day-9"]')
     expect(cell.exists()).toBe(true)
     expect(cell.find('[data-test="dot-work"]').exists()).toBe(true)
@@ -55,37 +59,37 @@ describe('HistoryView month grid', () => {
     expect(cell.text()).toContain('8h')
   })
 
-  it('shows no dots on days without entries', () => {
+  it('shows no dots on days without entries', async () => {
     localStore()
-    const wrapper = mountView()
+    const wrapper = await mountView()
     const cell = wrapper.find('[data-test="day-10"]')
     expect(cell.exists()).toBe(true)
     expect(cell.find('[data-test^="dot-"]').exists()).toBe(false)
   })
 
-  it('week rows align to weekRolloverDay (Monday start → 1 blank before Sep 1)', () => {
+  it('week rows align to weekRolloverDay (Monday start → 1 blank before Sep 1)', async () => {
     const store = localStore()
     store.settings.weekRolloverDay = 1
-    const wrapper = mountView()
+    const wrapper = await mountView()
     const cells = wrapper.findAll('[data-test^="day-"]')
     const firstReal = cells.findIndex((c) => c.attributes('data-test') === 'day-1')
     // Sep 1 2026 is a Tuesday; with Monday-start weeks there is 1 blank.
     expect(firstReal).toBe(1)
   })
 
-  it('week rows align to weekRolloverDay (Sunday start → 2 blanks before Sep 1)', () => {
+  it('week rows align to weekRolloverDay (Sunday start → 2 blanks before Sep 1)', async () => {
     const store = localStore()
     store.settings.weekRolloverDay = 0
-    const wrapper = mountView()
+    const wrapper = await mountView()
     const cells = wrapper.findAll('[data-test^="day-"]')
     const firstReal = cells.findIndex((c) => c.attributes('data-test') === 'day-1')
     expect(firstReal).toBe(2)
   })
 
-  it('weekday headers follow the rollover day', () => {
+  it('weekday headers follow the rollover day', async () => {
     const store = localStore()
     store.settings.weekRolloverDay = 1
-    const wrapper = mountView()
+    const wrapper = await mountView()
     const headers = wrapper.findAll('.calendar-day-header').map((h) => h.text())
     expect(headers).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])
   })
@@ -98,7 +102,7 @@ describe('HistoryView day timeline', () => {
       entry({ id: 'late', type: 'work', start: new Date(2026, 8, 9, 14).getTime(), end: new Date(2026, 8, 9, 15).getTime() }),
       entry({ id: 'early', type: 'work', start: new Date(2026, 8, 9, 9).getTime(), end: new Date(2026, 8, 9, 10).getTime() }),
     )
-    const wrapper = mountView()
+    const wrapper = await mountView()
     await wrapper.find('[data-test="day-9"]').trigger('click')
     const ids = wrapper
       .findAll('[data-test="timeline-entry"]')
@@ -112,7 +116,7 @@ describe('HistoryView day timeline', () => {
       entry({ id: 'a', type: 'work', start: new Date(2026, 8, 9, 9).getTime(), end: new Date(2026, 8, 9, 10).getTime() }),
       entry({ id: 'b', type: 'work', start: new Date(2026, 8, 9, 12).getTime(), end: new Date(2026, 8, 9, 13).getTime() }),
     )
-    const wrapper = mountView()
+    const wrapper = await mountView()
     await wrapper.find('[data-test="day-9"]').trigger('click')
     const gap = wrapper.find('[data-test="timeline-gap"]')
     expect(gap.exists()).toBe(true)
@@ -126,7 +130,7 @@ describe('HistoryView day timeline', () => {
       entry({ id: 'a', type: 'work', start: new Date(2026, 8, 9, 9).getTime(), end: new Date(2026, 8, 9, 10).getTime() }),
       entry({ id: 'b', type: 'work', start: new Date(2026, 8, 9, 10).getTime(), end: new Date(2026, 8, 9, 11).getTime() }),
     )
-    const wrapper = mountView()
+    const wrapper = await mountView()
     await wrapper.find('[data-test="day-9"]').trigger('click')
     expect(wrapper.find('[data-test="timeline-gap"]').exists()).toBe(false)
   })
@@ -137,7 +141,7 @@ describe('HistoryView day timeline', () => {
       entry({ id: 'w', type: 'work', start: new Date(2026, 8, 9, 9).getTime(), end: new Date(2026, 8, 9, 11).getTime() }),
       entry({ id: 's', type: 'sleep', start: new Date(2026, 8, 9, 12).getTime(), end: new Date(2026, 8, 9, 14).getTime() }),
     )
-    const wrapper = mountView()
+    const wrapper = await mountView()
     await wrapper.find('[data-test="day-9"]').trigger('click')
     // 2h + 2h = 4h
     expect(wrapper.find('.day-summary').text()).toContain('4h 0m')
@@ -148,7 +152,7 @@ describe('HistoryView day timeline', () => {
     store.entries.push(
       entry({ id: 'night', type: 'sleep', start: new Date(2026, 8, 8, 23).getTime(), end: new Date(2026, 8, 9, 1).getTime() }),
     )
-    const wrapper = mountView()
+    const wrapper = await mountView()
     expect(wrapper.find('[data-test="day-8"] .day-total').text()).toBe('1h')
     expect(wrapper.find('[data-test="day-9"] .day-total').text()).toBe('1h')
     await wrapper.find('[data-test="day-9"]').trigger('click')
@@ -161,7 +165,7 @@ describe('HistoryView day timeline', () => {
     store.entries.push(
       entry({ id: 'live', type: 'work', start: new Date(2026, 8, 9, 14).getTime(), end: null }),
     )
-    const wrapper = mountView()
+    const wrapper = await mountView()
     await wrapper.find('[data-test="day-9"]').trigger('click')
     const live = wrapper.find('[data-entry-id="live"]')
     expect(live.exists()).toBe(true)
@@ -175,7 +179,7 @@ describe('HistoryView day timeline', () => {
       entry({ id: 'a', type: 'work', start: new Date(2026, 8, 9, 9).getTime(), end: new Date(2026, 8, 9, 10).getTime() }),
       entry({ id: 'adj', type: 'work', start: new Date(2026, 8, 9, 12).getTime(), end: new Date(2026, 8, 9, 11, 30).getTime(), isCorrection: true }),
     )
-    const wrapper = mountView()
+    const wrapper = await mountView()
     await wrapper.find('[data-test="day-9"]').trigger('click')
     expect(wrapper.find('[data-test="timeline-gap"]').exists()).toBe(false)
     const adj = wrapper.find('[data-entry-id="adj"]')
@@ -191,7 +195,7 @@ describe('HistoryView day timeline', () => {
       entry({ id: 'inner', type: 'work', start: new Date(2026, 8, 9, 10).getTime(), end: new Date(2026, 8, 9, 11).getTime() }),
       entry({ id: 'later', type: 'work', start: new Date(2026, 8, 9, 13).getTime(), end: new Date(2026, 8, 9, 14).getTime() }),
     )
-    const wrapper = mountView()
+    const wrapper = await mountView()
     await wrapper.find('[data-test="day-9"]').trigger('click')
     const gaps = wrapper.findAll('[data-test="timeline-gap"]')
     expect(gaps).toHaveLength(1)
@@ -205,7 +209,7 @@ describe('HistoryView editing', () => {
     store.entries.push(
       entry({ id: 'night', type: 'sleep', start: new Date(2026, 8, 8, 23).getTime(), end: new Date(2026, 8, 9, 1).getTime() }),
     )
-    const wrapper = mountView()
+    const wrapper = await mountView()
     await wrapper.find('[data-test="day-9"]').trigger('click')
     await wrapper.find('[data-test="edit-history-entry"]').trigger('click')
     expect(wrapper.emitted('edit-entry')).toEqual([[{ id: 'night' }]])
@@ -216,7 +220,7 @@ describe('HistoryView editing', () => {
     store.entries.push(
       entry({ id: 'a', type: 'work', start: new Date(2026, 8, 9, 9).getTime(), end: new Date(2026, 8, 9, 10).getTime() }),
     )
-    const wrapper = mountView()
+    const wrapper = await mountView()
     await wrapper.find('[data-test="day-9"]').trigger('click')
     await wrapper.find('.delete-entry-btn').trigger('click')
     expect(wrapper.emitted('delete-entry')).toEqual([[{ id: 'a' }]])
@@ -225,7 +229,7 @@ describe('HistoryView editing', () => {
 
   it('add missed time emits an add request', async () => {
     localStore()
-    const wrapper = mountView()
+    const wrapper = await mountView()
     await wrapper.find('[data-test="day-9"]').trigger('click')
     await wrapper.find('[data-test="history-add-entry"]').trigger('click')
     expect(wrapper.emitted('add-entry')).toHaveLength(1)
