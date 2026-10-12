@@ -45,6 +45,59 @@ export interface Settings {
 
 export type DatabaseType = 'sqlite'
 
+export interface ProgressEventRow {
+  id: string
+  sessionId: string
+  at: number
+  outcome: 'progress' | 'blocked' | 'skipped' | 'snoozed'
+}
+
+export interface SyncTombstone {
+  id: string
+  revision: number
+  deletedAt: number
+}
+
+export interface SyncSnapshot {
+  protocol: 1
+  entries: { entry: TimeEntry; revision: number }[]
+  entryTombstones: SyncTombstone[]
+  preferences: { value: Record<string, unknown>; revision: number } | null
+  progressEvents: { event: ProgressEventRow; revision: number }[]
+  eventTombstones: SyncTombstone[]
+}
+
+export type SyncOperationKind =
+  | 'entry-upsert'
+  | 'entry-delete'
+  | 'entry-restore'
+  | 'preferences-replace'
+  | 'event-upsert'
+  | 'event-delete'
+
+export interface SyncOperationRequest {
+  operationId: string
+  kind: SyncOperationKind
+  baseRevision: number | null
+  payload: unknown
+}
+
+export type SyncRemoteState =
+  | { kind: 'entry'; entry: TimeEntry; revision: number }
+  | { kind: 'tombstone'; tombstone: SyncTombstone }
+  | { kind: 'preferences'; value: Record<string, unknown>; revision: number }
+  | { kind: 'missing'; revision: number | null }
+
+export type SyncOperationResult =
+  | { status: 'applied'; resource: string; revision: number; tombstoned?: boolean }
+  | { status: 'conflict'; resource: string; remote: SyncRemoteState }
+  | { status: 'rejected'; resource: string | null; reason: string }
+
+export interface SyncOperationAck {
+  replay: boolean
+  result: SyncOperationResult
+}
+
 export interface DatabaseAdapter {
   readonly type: DatabaseType
 
@@ -63,6 +116,10 @@ export interface DatabaseAdapter {
   // Key-value state (e.g. progressCheck)
   getState(key: string): Promise<unknown>
   setState(key: string, value: unknown): Promise<void>
+
+  // Sync protocol 1
+  getSyncSnapshot(): Promise<SyncSnapshot>
+  applySyncOperation(op: SyncOperationRequest): Promise<SyncOperationAck>
 
   // Lifecycle
   connect(): Promise<void>

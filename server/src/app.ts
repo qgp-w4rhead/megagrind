@@ -5,6 +5,7 @@ import entriesRoute from './routes/entries.js'
 import settingsRoute from './routes/settings.js'
 import stateRoute from './routes/state.js'
 import dbRoute from './routes/db.js'
+import { syncRoutes } from './routes/sync.js'
 
 export function createApp(): Hono {
   const app = new Hono()
@@ -25,6 +26,7 @@ export function createApp(): Hono {
   app.route('/api/settings', settingsRoute)
   app.route('/api/state', stateRoute)
   app.route('/api/db', dbRoute)
+  app.route('/api/sync', syncRoutes)
 
   return app
 }

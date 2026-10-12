@@ -45,7 +45,24 @@ export const settingsSchema = z.object({
   progressCheckEnabled: z.boolean(),
 })
 
-export const bulkEntriesSchema = z.array(timeEntrySchema)
+export const bulkEntriesSchema = z.array(timeEntrySchema).max(2000)
+
+const syncOperationBase = z.object({
+  operationId: z.string().min(1).max(128),
+  kind: z.enum([
+    'entry-upsert',
+    'entry-delete',
+    'entry-restore',
+    'preferences-replace',
+    'event-upsert',
+    'event-delete',
+  ]),
+  baseRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable(),
+})
+
+export const syncOperationSchema = syncOperationBase.extend({ payload: z.unknown() })
+
+export type SyncOperationInput = z.infer<typeof syncOperationSchema>
 
 export const stateSchema = z.object({
   settings: settingsSchema,
