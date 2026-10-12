@@ -20,8 +20,8 @@ db.post('/switch', async (c) => {
     await dbManager.switch(parsed.data.type)
     return c.json({ active: dbManager.type, available: dbManager.getAvailableTypes() })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return c.json({ error: message }, 500)
+    console.error('[DB] Failed to switch database:', err)
+    return c.json({ error: 'Failed to switch database' }, 500)
   }
 })
 

@@ -9,8 +9,8 @@ state.get('/:key', async (c) => {
     const value = await dbManager.getAdapter().getState(key)
     return c.json(value ?? null)
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return c.json({ error: message }, 500)
+    console.error('[State] Failed to load state:', err)
+    return c.json({ error: 'Failed to load state' }, 500)
   }
 })
 
@@ -21,8 +21,8 @@ state.put('/:key', async (c) => {
     await dbManager.getAdapter().setState(key, body)
     return c.json({ success: true })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return c.json({ error: message }, 500)
+    console.error('[State] Failed to write state:', err)
+    return c.json({ error: 'Failed to write state' }, 500)
   }
 })
 

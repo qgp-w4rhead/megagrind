@@ -9,8 +9,8 @@ settings.get('/', async (c) => {
     const data = await dbManager.getAdapter().getSettings()
     return c.json(data ?? null)
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return c.json({ error: message }, 500)
+    console.error('[Settings] Failed to load settings:', err)
+    return c.json({ error: 'Failed to load settings' }, 500)
   }
 })
 
@@ -22,8 +22,8 @@ settings.put('/', async (c) => {
     const data = await dbManager.getAdapter().updateSettings(parsed.data)
     return c.json(data)
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return c.json({ error: message }, 500)
+    console.error('[Settings] Failed to update settings:', err)
+    return c.json({ error: 'Failed to update settings' }, 500)
   }
 })
 
