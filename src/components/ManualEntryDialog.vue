@@ -185,7 +185,7 @@ function save() {
 }
 
 function label(type: TrackerType): string {
-  return activityLabel(type)
+  return activityLabel(type, store.settings.activities)
 }
 
 function describedBy(invalid: boolean): string {

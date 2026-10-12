@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useMegagrindStore } from '../stores/megagrind'
 import { activityLabel } from '../domain/labels'
 import type { TrackerType } from '../types'
 import type { StartActivityEvent } from '../types/appEvents'
+
+const store = useMegagrindStore()
 
 const props = defineProps<{
   activities: TrackerType[]
@@ -22,7 +25,7 @@ const description = ref('')
 const category = ref('')
 
 function labelOf(type: TrackerType): string {
-  return activityLabel(type)
+  return activityLabel(type, store.settings.activities)
 }
 
 const filtered = computed(() => {

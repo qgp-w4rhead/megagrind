@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Minus, Plus } from 'lucide-vue-next'
+import { useMegagrindStore } from '../stores/megagrind'
 import { getTrackerConfig } from '../config/trackers'
 import { activityLabel } from '../domain/labels'
 import type { TimeRange, TrackerType } from '../types'
 import { formatDuration, type RibbonSegment } from '../domain/today'
 
 const props = defineProps<{ segments: RibbonSegment[]; day: TimeRange; now: number }>()
+const store = useMegagrindStore()
 
 const HOUR = 3600000
 const MINUTE = 60000
@@ -201,7 +203,7 @@ onBeforeUnmount(() => {
 })
 
 function labelOf(type: TrackerType): string {
-  return activityLabel(type)
+  return activityLabel(type, store.settings.activities)
 }
 
 function accentOf(type: TrackerType): string {

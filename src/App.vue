@@ -46,11 +46,11 @@ const undo = ref<{ entry: TimeEntry; label: string } | null>(null)
 const editorDirty = ref(false)
 const router = useRouter()
 
-const choices = computed(() => activityChoices(store.settings.customChronos ?? [], store.entries.map((e) => e.type)))
+const choices = computed(() => activityChoices(store.settings.customChronos ?? [], store.entries.map((e) => e.type), store.settings.activities))
 const activeEntry = computed(() => store.entries.find((e) => e.end === null && e.type !== 'idle') ?? null)
 
 function labelOf(type: TrackerType): string {
-  return activityLabel(type)
+  return activityLabel(type, store.settings.activities)
 }
 
 function categoriesFor(type: TrackerType): string[] | undefined {

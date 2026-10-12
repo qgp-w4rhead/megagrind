@@ -24,14 +24,14 @@ const store = useMegagrindStore()
 const favoritesListView = ref(false)
 
 const presentation = computed(() => todayPresentation(store.entries, store.now))
-const favorites = computed(() => favoriteActivities(store.entries))
+const favorites = computed(() => favoriteActivities(store.entries, store.settings.activities))
 const recent = computed(() => recentFinishedEntries(store.entries, 5))
 const dateLabel = computed(() =>
   new Date(store.now).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }),
 )
 
 function labelOf(type: TrackerType): string {
-  return activityLabel(type)
+  return activityLabel(type, store.settings.activities)
 }
 
 function iconOf(type: TrackerType) {
