@@ -56,6 +56,19 @@ describe('activity choices and safe labels', () => {
     expect(getTrackerConfig('constructor' as TrackerType).label).toBe('Constructor')
     expect(activityLabel('work')).toBe('Work')
   })
+
+  it('prefers definition labels so renames and archived customs stay readable in history', () => {
+    const defined = [
+      { id: 'work', label: 'Deep Work', favorite: false, archived: false, order: 0 },
+      { id: 'my-hobby', label: 'Pottery', favorite: false, archived: true, order: 1 },
+    ]
+    expect(activityLabel('work', defined)).toBe('Deep Work')
+    expect(activityLabel('my-hobby', defined)).toBe('Pottery')
+    expect(activityLabel('sleep', defined)).toBe('Sleep')
+    expect(activityLabel('unlisted')).toBe('unlisted')
+    // A blanked-out label falls back rather than rendering nothing.
+    expect(activityLabel('work', [{ ...defined[0]!, label: '  ' }])).toBe('Work')
+  })
 })
 
 describe('todayPresentation', () => {
