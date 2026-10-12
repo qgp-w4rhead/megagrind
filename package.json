@@ -14,13 +14,13 @@
     "lint:oxlint": "oxlint . --fix",
     "lint:eslint": "eslint . --fix --cache",
     "format": "prettier --write --experimental-cli src/",
-    "server:dev": "npm --prefix server run dev",
-    "server:build": "npm --prefix server run build",
-    "server:start": "npm --prefix server run start",
-    "server:install": "npm --prefix server install",
+    "server:dev": "pnpm -F megagrind-server dev",
+    "server:build": "pnpm -F megagrind-server build",
+    "server:start": "pnpm -F megagrind-server start",
+    "server:install": "pnpm install",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:server": "npm --prefix server run test",
+    "test:server": "pnpm -F megagrind-server test",
     "test:all": "run-s test test:server"
   },
   "dependencies": {
@@ -58,5 +58,9 @@
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
+  },
+  "packageManager": "pnpm@10.2.1",
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
   }
 }

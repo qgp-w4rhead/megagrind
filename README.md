@@ -8,32 +8,30 @@ A comprehensive time tracking system designed for maximum productivity—168 hou
 
 ### Prerequisites
 - Node.js ^20.19.0 or >=22.12.0
+- pnpm 10 (`corepack enable`)
 
 ### Installation
 
 ```bash
-# Install frontend dependencies
-npm install
-
-# Install server dependencies
-npm run server:install
+# Installs frontend and server dependencies (pnpm workspace)
+pnpm install
 ```
 
 ### Running the App
 
 ```bash
 # Frontend + backend together (frontend :5173, API :3000, /api proxied)
-npm run dev:all
+pnpm dev:all
 ```
 
 Or run them separately:
 
 ```bash
 # Frontend only — works standalone in local mode with localStorage
-npm run dev
+pnpm dev
 
 # Backend only (http://localhost:3000)
-npm run server:dev
+pnpm server:dev
 ```
 
 The Vite dev server proxies `/api/*` to `http://localhost:3000`, so no CORS or URL config is needed in dev.
@@ -101,13 +99,13 @@ Open Settings (top-left) to customize:
 
 ```bash
 # Frontend tests (jsdom)
-npm test
+pnpm test
 
 # Backend tests (node)
-npm run test:server
+pnpm test:server
 
 # Everything
-npm run test:all
+pnpm test:all
 ```
 
 ## License
