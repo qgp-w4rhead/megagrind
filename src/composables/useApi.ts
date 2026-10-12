@@ -1,5 +1,6 @@
 import { ref } from 'vue'
-import type { TimeEntry, Settings } from '../types'
+import type { TimeEntry, Settings, SyncOpKind } from '../types'
+import type { SyncOperationAck, SyncSnapshot } from '../domain/sync'
 
 export type BackendMode = 'local' | 'sqlite' | 'mongodb'
 export type DatabaseType = 'sqlite'
@@ -7,6 +8,20 @@ export type DatabaseType = 'sqlite'
 export interface DbStatus {
   active: DatabaseType | null
   available: DatabaseType[]
+}
+
+// Carries the sanitized server response for non-2xx replies so the sync layer
+// can distinguish retryable failures from validation/conflict outcomes
+// without ever surfacing raw server internals.
+export class ApiError extends Error {
+  readonly status: number
+  readonly body: { error?: string } & Record<string, unknown>
+  constructor(status: number, body: { error?: string } & Record<string, unknown>) {
+    super(body.error || `HTTP ${status}`)
+    this.name = 'ApiError'
+    this.status = status
+    this.body = body
+  }
 }
 
 // Backend config lives in the megagrind store (persisted under 'megagrind-store').
@@ -43,8 +58,10 @@ async function request<T>(
     })
 
     if (!res.ok) {
-      const body = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error(body.error || `HTTP ${res.status}`)
+      const body = (await res.json().catch(() => ({ error: res.statusText }))) as {
+        error?: string
+      } & Record<string, unknown>
+      throw new ApiError(res.status, body)
     }
 
     return res.json() as Promise<T>
@@ -137,6 +154,22 @@ async function putState(key: string, value: unknown): Promise<void> {
   })
 }
 
+async function getSyncSnapshot(): Promise<SyncSnapshot> {
+  return request<SyncSnapshot>('/api/sync/snapshot')
+}
+
+async function postSyncOperation(op: {
+  operationId: string
+  kind: SyncOpKind
+  baseRevision: number | null
+  payload: unknown
+}): Promise<SyncOperationAck> {
+  return request<SyncOperationAck>('/api/sync/operations', {
+    method: 'POST',
+    body: JSON.stringify(op),
+  })
+}
+
 export function useApi() {
   return {
     baseUrl,
@@ -156,5 +189,7 @@ export function useApi() {
     bulkUpsertEntries,
     getState,
     putState,
+    getSyncSnapshot,
+    postSyncOperation,
   }
 }

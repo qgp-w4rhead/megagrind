@@ -11,6 +11,9 @@ export const IMPORT_LIMIT_BYTES = 50 * 1024 * 1024
 const encoder = new TextEncoder()
 const PORTABLE_SETTING_KEYS = [
   'weeklyAllocations',
+  'activities',
+  'goals',
+  'onboardingCompleted',
   'customChronos',
   'choreCategories',
   'workCategories',
@@ -121,6 +124,9 @@ export function byteLength(value: string): number {
 export function portablePreferences(settings: Settings): PortablePreferences {
   return {
     weeklyAllocations: clone(settings.weeklyAllocations),
+    activities: clone(settings.activities ?? []),
+    goals: clone(settings.goals ?? {}),
+    onboardingCompleted: settings.onboardingCompleted === true,
     customChronos: [...settings.customChronos],
     choreCategories: [...settings.choreCategories],
     workCategories: [...settings.workCategories],

@@ -1,5 +1,7 @@
-import { DEFAULT_SETTINGS } from '../types'
-import type { ProgressEvent, Settings, SyncOp, TimeEntry } from '../types'
+import { buildDefaultActivities, DEFAULT_SETTINGS } from '../types'
+import type { ActivityDefinition, Goal, ProgressEvent, Settings, SyncEnvelope, SyncOpKind, TimeEntry } from '../types'
+import { PORTABLE_SETTING_KEYS } from './sync'
+import { activityDefinitions } from './activities'
 import { PROGRESS_DEFAULTS, type ProgressState } from './progressSchedule'
 
 export interface StoredSnapshotV2 {
@@ -9,7 +11,10 @@ export interface StoredSnapshotV2 {
   progressCheck: ProgressState
   progressEvents: ProgressEvent[]
   progressHistoryStartedAt: number | null
-  syncQueue: SyncOp[]
+  syncQueue: SyncEnvelope[]
+  remoteRevisions: Record<string, number>
+  remoteTombstones: Record<string, number>
+  lastSyncedAt: number | null
 }
 
 export type StoredDecode =
@@ -110,6 +115,47 @@ function readStringArray(v: unknown, label: string, fallback: string[]): string[
   return [...(v as string[])]
 }
 
+const GOAL_POLICIES = new Set(['none', 'target', 'minimum', 'budget'])
+
+function readActivities(v: unknown): ActivityDefinition[] {
+  if (v === undefined) return buildDefaultActivities()
+  if (!Array.isArray(v)) fail('activities must be an array')
+  const seen = new Set<string>()
+  const out: ActivityDefinition[] = []
+  for (let i = 0; i < v.length; i++) {
+    const raw = v[i]
+    if (!isPlainObject(raw)) fail(`activities[${i}] must be an object`)
+    if (typeof raw.id !== 'string' || raw.id.length === 0) fail(`activities[${i}].id must be a nonempty string`)
+    if (UNSAFE_KEYS.has(raw.id)) fail(`unsafe activity id ${raw.id}`)
+    if (seen.has(raw.id)) fail(`duplicate activity id ${raw.id}`)
+    seen.add(raw.id)
+    if (typeof raw.label !== 'string' || raw.label.length === 0) fail(`activities[${i}].label must be a nonempty string`)
+    if (raw.favorite !== undefined && typeof raw.favorite !== 'boolean') fail(`activities[${i}].favorite must be a boolean`)
+    if (raw.archived !== undefined && typeof raw.archived !== 'boolean') fail(`activities[${i}].archived must be a boolean`)
+    const order = readInt(raw.order, 0, 100000, `activities[${i}].order`, i)
+    out.push({ id: raw.id, label: raw.label, favorite: raw.favorite === true, archived: raw.archived === true, order })
+  }
+  return out.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+}
+
+function readGoals(v: unknown): Record<string, Goal> {
+  if (v === undefined) return {}
+  if (!isPlainObject(v)) fail('goals must be an object')
+  const out: Record<string, Goal> = {}
+  for (const key of Object.keys(v)) {
+    if (UNSAFE_KEYS.has(key)) fail(`unsafe goal key ${key}`)
+    const raw = v[key]
+    if (!isPlainObject(raw)) fail(`goal ${key} must be an object`)
+    if (!GOAL_POLICIES.has(raw.policy as string)) fail(`goal ${key} has an unsupported policy`)
+    const hours = raw.hours
+    if (typeof hours !== 'number' || !Number.isFinite(hours) || hours < 0 || hours > 168) {
+      fail(`goal ${key} hours must be a finite number from 0 to 168`)
+    }
+    out[key] = { policy: raw.policy as Goal['policy'], hours }
+  }
+  return out
+}
+
 export function readSettings(v: unknown): Settings {
   if (v === undefined) return structuredClone(DEFAULT_SETTINGS)
   if (!isPlainObject(v)) fail('settings must be an object')
@@ -125,6 +171,12 @@ export function readSettings(v: unknown): Settings {
   if (typeof backendUrl !== 'string') fail('backendUrl must be a string')
   return {
     weeklyAllocations: allocations,
+    activities: readActivities(v.activities),
+    goals: readGoals(v.goals),
+    // An existing store that predates the flag is an established user — never
+    // route them through first-use onboarding. Fresh installs never reach this
+    // reader: they hydrate from DEFAULT_SETTINGS (onboardingCompleted: false).
+    onboardingCompleted: v.onboardingCompleted === undefined ? true : readBool(v.onboardingCompleted, 'onboardingCompleted', true),
     customChronos: readStringArray(v.customChronos, 'customChronos', d.customChronos),
     choreCategories: readStringArray(v.choreCategories, 'choreCategories', d.choreCategories),
     workCategories: readStringArray(v.workCategories, 'workCategories', d.workCategories),
@@ -206,31 +258,151 @@ export function readProgressEvents(v: unknown): ProgressEvent[] {
   return [...byId.values()]
 }
 
-function readQueue(v: unknown): SyncOp[] {
+const SYNC_OP_KINDS = new Set<SyncOpKind>([
+  'entry-upsert',
+  'entry-delete',
+  'entry-restore',
+  'preferences-replace',
+  'event-upsert',
+  'event-delete',
+])
+
+let legacyOpCounter = 0
+function newOperationId(raw: unknown): string {
+  if (typeof raw === 'string' && raw.length > 0) return raw
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  legacyOpCounter += 1
+  return `op-${Date.now().toString(36)}-${legacyOpCounter}`
+}
+
+function readBaseRevision(v: unknown): number | null {
+  if (v === undefined || v === null) return null
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) fail('operation baseRevision must be a nonnegative integer or null')
+  return v
+}
+
+function readEndpointId(v: unknown): string | null {
+  if (v === undefined || v === null) return null
+  if (typeof v !== 'string' || v.length === 0) fail('operation endpointId must be a string or null')
+  return v
+}
+
+// Legacy pre-protocol payloads became blocked envelopes: they carry valid
+// intent but no endpoint provenance, so they must never flush until the user
+// explicitly assigns them to an endpoint.
+function blockedEnvelope(kind: SyncOpKind, payload: unknown): SyncEnvelope {
+  return {
+    operationId: newOperationId(undefined),
+    endpointId: null,
+    kind,
+    payload,
+    baseRevision: null,
+    status: 'blocked',
+    blockedReason: 'Queued before endpoint tracking existed. Assign these changes to a server endpoint to send them.',
+    attempts: 0,
+  }
+}
+
+function readPortablePrefsPayload(v: unknown): Record<string, unknown> {
+  if (!isPlainObject(v)) fail('preferences payload must be an object')
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(v)) {
+    if (!(PORTABLE_SETTING_KEYS as readonly string[]).includes(key)) continue
+    out[key] = structuredClone(v[key])
+  }
+  return out
+}
+
+function readQueue(v: unknown): SyncEnvelope[] {
   if (v === undefined) return []
   if (!Array.isArray(v)) fail('syncQueue must be an array')
-  return v.map((raw) => {
+  const out: SyncEnvelope[] = []
+  for (const raw of v) {
     if (!isPlainObject(raw)) fail('sync op must be an object')
+    // Current envelope shape.
+    if (SYNC_OP_KINDS.has(raw.kind as SyncOpKind)) {
+      const status = raw.status === 'blocked' ? 'blocked' : 'pending'
+      let payload: unknown
+      switch (raw.kind as SyncOpKind) {
+        case 'entry-upsert':
+        case 'entry-restore': {
+          const [entry] = readEntries([raw.payload])
+          payload = entry
+          break
+        }
+        case 'entry-delete':
+        case 'event-delete': {
+          if (!isPlainObject(raw.payload) || typeof raw.payload.id !== 'string' || raw.payload.id.length === 0) {
+            fail('delete op payload needs a nonempty id')
+          }
+          payload = { id: raw.payload.id }
+          break
+        }
+        case 'preferences-replace':
+          payload = readPortablePrefsPayload(raw.payload)
+          break
+        case 'event-upsert': {
+          const [event] = readProgressEvents([raw.payload])
+          payload = event
+          break
+        }
+      }
+      const endpointId = readEndpointId(raw.endpointId)
+      const unbound = status === 'pending' && endpointId === null
+      out.push({
+        operationId: newOperationId(raw.operationId),
+        endpointId,
+        kind: raw.kind as SyncOpKind,
+        payload,
+        baseRevision: readBaseRevision(raw.baseRevision),
+        status: unbound ? 'blocked' : status,
+        blockedReason: unbound
+          ? 'Queued before endpoint tracking existed. Assign these changes to a server endpoint to send them.'
+          : readOptionalString(raw.blockedReason, 'blockedReason') ?? null,
+        attempts: 0,
+      })
+      continue
+    }
+    // Legacy pre-protocol ops.
     switch (raw.kind) {
       case 'upsert-entry': {
         const [entry] = readEntries([raw.entry])
-        return { kind: 'upsert-entry', entry: entry! }
+        out.push(blockedEnvelope('entry-upsert', entry))
+        break
       }
       case 'bulk-entries':
-        return { kind: 'bulk-entries', entries: readEntries(raw.entries) }
+        for (const entry of readEntries(raw.entries)) out.push(blockedEnvelope('entry-upsert', entry))
+        break
       case 'delete-entry':
         if (typeof raw.id !== 'string' || raw.id.length === 0) fail('delete op id must be a nonempty string')
-        return { kind: 'delete-entry', id: raw.id }
+        out.push(blockedEnvelope('entry-delete', { id: raw.id }))
+        break
       case 'settings':
         if (!isPlainObject(raw.settings)) fail('settings op payload must be an object')
-        return { kind: 'settings', settings: structuredClone(raw.settings) as unknown as Settings }
+        out.push(blockedEnvelope('preferences-replace', readPortablePrefsPayload(raw.settings)))
+        break
       case 'state':
-        if (typeof raw.key !== 'string') fail('state op key must be a string')
-        return { kind: 'state', key: raw.key, value: structuredClone(raw.value) }
+        // Device-local progress state never synchronizes: drop the op.
+        break
       default:
         fail('unsupported sync op kind')
     }
-  })
+  }
+  return out
+}
+
+function readRevisionMap(v: unknown, label: string): Record<string, number> {
+  if (v === undefined) return {}
+  if (!isPlainObject(v)) fail(`${label} must be an object`)
+  const out: Record<string, number> = {}
+  for (const [key, value] of Object.entries(v)) {
+    if (UNSAFE_KEYS.has(key)) continue
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+      fail(`${label}.${key} must be a nonnegative integer`)
+    }
+    out[key] = value
+  }
+  return out
 }
 
 export function encodeStoredSnapshot(s: StoredSnapshotV2): string {
@@ -242,6 +414,9 @@ export function encodeStoredSnapshot(s: StoredSnapshotV2): string {
     progressEvents: s.progressEvents,
     progressHistoryStartedAt: s.progressHistoryStartedAt,
     syncQueue: s.syncQueue,
+    remoteRevisions: s.remoteRevisions,
+    remoteTombstones: s.remoteTombstones,
+    lastSyncedAt: s.lastSyncedAt,
   })
 }
 
@@ -262,6 +437,20 @@ export function decodeStoredCache(raw: string | null): StoredDecode {
       progressEvents: readProgressEvents(parsed.progressEvents),
       progressHistoryStartedAt: readNullableTime(parsed.progressHistoryStartedAt, 'progressHistoryStartedAt'),
       syncQueue: readQueue(parsed.syncQueue),
+      remoteRevisions: readRevisionMap(parsed.remoteRevisions, 'remoteRevisions'),
+      remoteTombstones: readRevisionMap(parsed.remoteTombstones, 'remoteTombstones'),
+      lastSyncedAt: readNullableTime(parsed.lastSyncedAt, 'lastSyncedAt'),
+    }
+    // A persisted store means an established user: cover every activity id
+    // they already have (custom chronos, history-only types) and never show
+    // first-use onboarding when the flag was never stored.
+    snapshot.settings.activities = activityDefinitions(
+      snapshot.settings.customChronos,
+      snapshot.entries.map((e) => e.type),
+      snapshot.settings.activities,
+    )
+    if (!isPlainObject(parsed.settings) || parsed.settings.onboardingCompleted === undefined) {
+      snapshot.settings.onboardingCompleted = true
     }
     return { kind: 'ok', sourceVersion, snapshot }
   } catch (err) {

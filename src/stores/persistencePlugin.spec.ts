@@ -58,7 +58,14 @@ describe('megagrind persistence plugin', () => {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
     expect(saved.schemaVersion).toBe(2)
     expect(saved.entries.map((e: { id: string }) => e.id)).toEqual(['old', 'new'])
-    expect(saved.syncQueue).toEqual([{ kind: 'delete-entry', id: 'pending-delete' }])
+    // The legacy op hydrated into a blocked envelope; the intent is kept.
+    expect(saved.syncQueue).toHaveLength(1)
+    expect(saved.syncQueue[0]).toMatchObject({
+      kind: 'entry-delete',
+      endpointId: null,
+      status: 'blocked',
+      payload: { id: 'pending-delete' },
+    })
   })
 
   it('leaves invalid stored data untouched and exposes recovery instead of overwriting it', async () => {

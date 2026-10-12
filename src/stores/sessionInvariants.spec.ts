@@ -171,9 +171,9 @@ describe('session invariants', () => {
     store.settings.backendMode = 'sqlite'
     store.entries.push(openEntry('a', 'work', 100), openEntry('b', 'chores', 200))
     store.resolveOpenEntries('b')
-    const upserts = store.syncQueue.filter((op) => op.kind === 'upsert-entry')
-    expect(upserts.map((op) => (op as { entry: TimeEntry }).entry.id)).toEqual(['a'])
-    expect((upserts[0] as { entry: TimeEntry }).entry.end).toBe(200)
+    const upserts = store.syncQueue.filter((op) => op.kind === 'entry-upsert')
+    expect(upserts.map((op) => (op.payload as TimeEntry).id)).toEqual(['a'])
+    expect((upserts[0]!.payload as TimeEntry).end).toBe(200)
   })
 
   it('a session open longer than the stale threshold is flagged for review', () => {

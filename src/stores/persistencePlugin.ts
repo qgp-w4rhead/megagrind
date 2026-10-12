@@ -10,6 +10,9 @@ type PersistedDomain = {
   progressEvents: unknown[]
   progressHistoryStartedAt: number | null
   syncQueue: unknown[]
+  remoteRevisions: Record<string, number>
+  remoteTombstones: Record<string, number>
+  lastSyncedAt: number | null
 }
 
 type PersistedStore = Store<'megagrind'> & PersistedDomain & {
@@ -45,6 +48,9 @@ function snapshotFrom(store: PersistedStore): StoredSnapshotV2 {
     progressEvents: dataClone(store.progressEvents) as StoredSnapshotV2['progressEvents'],
     progressHistoryStartedAt: store.progressHistoryStartedAt,
     syncQueue: dataClone(store.syncQueue) as StoredSnapshotV2['syncQueue'],
+    remoteRevisions: { ...store.remoteRevisions },
+    remoteTombstones: { ...store.remoteTombstones },
+    lastSyncedAt: store.lastSyncedAt,
   }
 }
 
@@ -55,6 +61,9 @@ function applySnapshot(store: PersistedStore, snapshot: StoredSnapshotV2) {
   store.progressEvents = snapshot.progressEvents
   store.progressHistoryStartedAt = snapshot.progressHistoryStartedAt
   store.syncQueue = snapshot.syncQueue
+  store.remoteRevisions = snapshot.remoteRevisions
+  store.remoteTombstones = snapshot.remoteTombstones
+  store.lastSyncedAt = snapshot.lastSyncedAt
 }
 
 export function megagrindPersistencePlugin({ store }: PiniaPluginContext) {
@@ -167,7 +176,7 @@ export function megagrindPersistencePlugin({ store }: PiniaPluginContext) {
 
   hydrate()
   stop = watch(
-    () => [target.entries, target.settings, target.progressCheck, target.progressEvents, target.progressHistoryStartedAt, target.syncQueue],
+    () => [target.entries, target.settings, target.progressCheck, target.progressEvents, target.progressHistoryStartedAt, target.syncQueue, target.remoteRevisions, target.remoteTombstones, target.lastSyncedAt],
     () => persist(),
     { deep: true },
   )

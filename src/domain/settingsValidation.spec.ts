@@ -37,4 +37,13 @@ describe('validateSettings', () => {
     expect(validateSettings(withSettings((s) => (s.progressCheckInterval = 4))).progressCheckInterval).toBeDefined()
     expect(validateSettings(withSettings((s) => (s.progressCheckInterval = 61))).progressCheckInterval).toBeDefined()
   })
+
+  it('rejects empty, over-long, or duplicate activity labels before save', () => {
+    expect(validateSettings(withSettings((s) => (s.activities[0]!.label = '   '))).activities).toBeDefined()
+    expect(validateSettings(withSettings((s) => (s.activities[0]!.label = 'x'.repeat(61)))).activities).toBeDefined()
+    expect(
+      validateSettings(withSettings((s) => (s.activities = [...s.activities, { ...s.activities[0]! }]))).activities,
+    ).toBeDefined()
+    expect(validateSettings(withSettings((s) => (s.activities[0]!.label = 'Deep Work'))).activities).toBeUndefined()
+  })
 })

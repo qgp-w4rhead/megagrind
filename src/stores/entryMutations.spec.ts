@@ -11,7 +11,7 @@ afterEach(() => {
 })
 
 describe('restoreEntry (undo of a delete)', () => {
-  it('restores the exact original record under the same id and queues an upsert', () => {
+  it('restores the exact original record under the same id and queues a restore', () => {
     const store = useMegagrindStore()
     store.settings.backendMode = 'sqlite'
     const original: TimeEntry = { id: 'e1', type: 'work', start: 1000, end: 5000, description: 'draft', balancedWith: 'e2' }
@@ -22,7 +22,11 @@ describe('restoreEntry (undo of a delete)', () => {
     store.restoreEntry(snapshot)
     expect(store.entries).toHaveLength(1)
     expect(store.entries[0]).toEqual(original)
-    expect(store.syncQueue).toContainEqual({ kind: 'upsert-entry', entry: original })
+    // Restore is queued as an entry-restore envelope; at flush time it
+    // degrades to entry-upsert unless the remote side tombstoned the id.
+    const restoreOps = store.syncQueue.filter((op) => op.kind === 'entry-restore')
+    expect(restoreOps).toHaveLength(1)
+    expect(restoreOps[0]!.payload).toEqual(original)
   })
 
   it('rejects restoring a running entry while another entry is running, without changing entries', () => {

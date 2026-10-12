@@ -127,6 +127,9 @@ describe('useTabCoordination', () => {
       progressEvents: [],
       progressHistoryStartedAt: null,
       syncQueue: [],
+      remoteRevisions: {},
+      remoteTombstones: {},
+      lastSyncedAt: null,
     }))
     window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY }))
     await vi.advanceTimersByTimeAsync(60)

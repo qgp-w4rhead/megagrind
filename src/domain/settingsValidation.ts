@@ -1,6 +1,6 @@
 import type { Settings } from '../types'
 
-export type SettingsErrors = Partial<Record<'allocations' | 'allocationTotal' | 'weekRolloverDay' | 'weekRolloverHour' | 'focusModeDuration' | 'progressCheckInterval', string>>
+export type SettingsErrors = Partial<Record<'allocations' | 'allocationTotal' | 'weekRolloverDay' | 'weekRolloverHour' | 'focusModeDuration' | 'progressCheckInterval' | 'activities', string>>
 
 const MAX_WEEK_HOURS = 168
 
@@ -27,6 +27,17 @@ export function validateSettings(settings: Settings): SettingsErrors {
   }
   if (!isWholeNumberIn(settings.progressCheckInterval, 5, 60)) {
     errors.progressCheckInterval = 'Check interval must be a whole number of minutes from 5 to 60.'
+  }
+  const activities = settings.activities ?? []
+  const seenIds = new Set<string>()
+  const invalid = activities.some((a) => {
+    if (typeof a.label !== 'string' || a.label.trim().length === 0 || a.label.length > 60) return true
+    if (seenIds.has(a.id)) return true
+    seenIds.add(a.id)
+    return false
+  })
+  if (invalid) {
+    errors.activities = 'Every activity needs a unique, non-empty name of at most 60 characters.'
   }
   return errors
 }

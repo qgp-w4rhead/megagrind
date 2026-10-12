@@ -123,6 +123,27 @@ describe('import preview and apply', () => {
     }
   })
 
+  it('a full backup restores into an empty store with the same logical records', () => {
+    const b = backup()
+    const result = applyImport({
+      imported: b,
+      localEntries: [],
+      localSettings: DEFAULT_SETTINGS,
+      localEvents: [],
+      localHistoryStartedAt: null,
+      options: { mode: 'replace', restorePreferences: true, eventMode: 'replace' },
+      now,
+    })
+    expect(result.kind).toBe('ok')
+    if (result.kind === 'ok') {
+      const byStart = (a: TimeEntry, c: TimeEntry) => a.start - c.start || a.id.localeCompare(c.id)
+      expect([...result.entries].sort(byStart)).toEqual([...b.entries].sort(byStart))
+      expect(result.progressEvents).toEqual(b.progressEvents)
+      expect(result.progressHistoryStartedAt).toBe(b.progressHistoryStartedAt)
+      expect(result.settingsPatch).toEqual(b.preferences)
+    }
+  })
+
   it('progress events merge immutably by id and preserve the earliest declared history start', () => {
     const localEvent = { id: 'local-event', sessionId: 's', at: now - 5000, outcome: 'blocked' as const }
     const result = applyImport({

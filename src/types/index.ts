@@ -56,15 +56,61 @@ export interface WeekData {
   settings: Settings
 }
 
-export type SyncOp =
-  | { kind: 'upsert-entry'; entry: TimeEntry }
-  | { kind: 'bulk-entries'; entries: TimeEntry[] }
-  | { kind: 'delete-entry'; id: string }
-  | { kind: 'settings'; settings: Settings }
-  | { kind: 'state'; key: string; value: unknown }
+// Sync protocol 1 outbox. Each queued change is an immutable envelope:
+// operationId is generated at enqueue and never reused, endpointId records
+// which backend configuration the change was captured for (never sent to a
+// different server), payload is a deep snapshot taken at enqueue time, and
+// baseRevision is filled with the last-known remote revision right before the
+// operation is sent for compare-and-swap.
+export type SyncOpKind =
+  | 'entry-upsert'
+  | 'entry-delete'
+  | 'entry-restore'
+  | 'preferences-replace'
+  | 'event-upsert'
+  | 'event-delete'
+
+export interface SyncEnvelope {
+  operationId: string
+  endpointId: string | null
+  kind: SyncOpKind
+  payload: unknown
+  baseRevision: number | null
+  status: 'pending' | 'blocked'
+  blockedReason: string | null
+  attempts: number
+}
+
+// A divergence between this device and the server that needs an explicit
+// choice. `local`/`remote` hold the preserved copies; `remote` is null when
+// the server has no record for the resource.
+export interface SyncConflictInfo {
+  resource: string
+  remoteKind: 'entry' | 'preferences' | 'tombstone' | 'missing'
+  local: unknown | null
+  remote: unknown | null
+  remoteRevision: number | null
+  label: string
+}
+
+export type SyncStatus =
+  | 'local'
+  | 'offline'
+  | 'pending'
+  | 'syncing'
+  | 'synced'
+  | 'conflict'
+  | 'failed'
 
 export interface Settings {
   weeklyAllocations: Record<string, number>
+  // M1.2 additive preference fields: activity display metadata, per-activity
+  // goal policies, and whether this device finished (or skipped) first-use
+  // setup. activities/goals are portable preferences; onboardingCompleted is
+  // device-local and never syncs.
+  activities: ActivityDefinition[]
+  goals: Record<string, Goal>
+  onboardingCompleted: boolean
   customChronos: string[]
   choreCategories: string[]
   workCategories: string[]
@@ -94,7 +140,47 @@ export interface TrackerState {
   }
 }
 
+export const TRACKER_LABELS: Record<string, string> = {
+  sleep: 'Sleep',
+  cook: 'Cook/Eat',
+  shower: 'Shower',
+  chores: 'Chores',
+  move: 'Move',
+  leisure: 'Leisure',
+  unexpected: 'Unexpected',
+  idle: 'Idle Time',
+  work: 'Work',
+}
+
+// Built-in activity seed: display order matches BUILT_IN_ACTIVITIES. All
+// start unfavorited so the Today list keeps its recency-driven behavior until
+// the user makes an explicit choice (M5.1/M7.1 own richer management).
+export const BUILT_IN_ACTIVITY_IDS = [
+  'work',
+  'chores',
+  'sleep',
+  'cook',
+  'shower',
+  'move',
+  'leisure',
+  'unexpected',
+  'buffer',
+] as const
+
+export function buildDefaultActivities(): ActivityDefinition[] {
+  return BUILT_IN_ACTIVITY_IDS.map((id, order) => ({
+    id,
+    label: TRACKER_LABELS[id] ?? id.charAt(0).toUpperCase() + id.slice(1),
+    favorite: false,
+    archived: false,
+    order,
+  }))
+}
+
 export const DEFAULT_SETTINGS: Settings = {
+  activities: buildDefaultActivities(),
+  goals: {},
+  onboardingCompleted: false,
   weeklyAllocations: {
     sleep: 49,
     cook: 7,
@@ -123,18 +209,6 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export function createDefaultSettings(): Settings {
   return structuredClone(DEFAULT_SETTINGS)
-}
-
-export const TRACKER_LABELS: Record<string, string> = {
-  sleep: 'Sleep',
-  cook: 'Cook/Eat',
-  shower: 'Shower',
-  chores: 'Chores',
-  move: 'Move',
-  leisure: 'Leisure',
-  unexpected: 'Unexpected',
-  idle: 'Idle Time',
-  work: 'Work',
 }
 
 export const DEFAULT_WORK_CATEGORIES = ['planning', 'research', 'development', 'setup', 'other']

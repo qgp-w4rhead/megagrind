@@ -50,7 +50,16 @@ describe('default connection contract', () => {
     const store = useMegagrindStore()
     store.settings.backendMode = 'mongodb'
     store.entries.push({ id: 'q', type: 'work', start: 1, end: 2 })
-    store.syncQueue.push({ kind: 'delete-entry', id: 'old' })
+    store.syncQueue.push({
+      operationId: 'legacy-op',
+      endpointId: 'sqlite:http://elsewhere.test',
+      kind: 'entry-delete',
+      payload: { id: 'old' },
+      baseRevision: null,
+      status: 'pending',
+      blockedReason: null,
+      attempts: 0,
+    })
     await store.initFromBackend()
     store.deleteEntry('q')
     await store.flushSyncQueue()
