@@ -47,8 +47,14 @@ const alertMessage = computed(() => {
         <dd data-test="blocked-streak">{{ redCount }}</dd>
       </div>
     </dl>
-    <p v-if="redCount >= 3 && store.currentWorkSessionId" class="break-note">
-      Several blocked checks in a row. A short break may help.
+    <div v-if="redCount >= 3 && store.currentWorkSessionId" class="break-note" data-test="break-suggestion">
+      <p class="break-text">Several blocked checks in a row — a short break may help, or you can keep going.</p>
+      <button type="button" class="btn-action" data-test="take-break" @click="store.takeBreak('move')">
+        Start a walk (switches to Move)
+      </button>
+    </div>
+    <p v-if="store.breakReturnType !== null && store.isRunning" class="break-note" data-test="resume-hint">
+      On a break — when you're back, <button type="button" class="link-btn" data-test="resume-from-break" @click="store.resumeFromBreak()">resume the previous activity</button> or pick another.
     </p>
     <button
       v-if="store.alertsPermission === 'default'"
@@ -117,10 +123,35 @@ const alertMessage = computed(() => {
   font-variant-numeric: tabular-nums;
 }
 
-.alerts-status,
-.break-note {
+.alerts-status {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.9375rem;
+}
+
+.break-note {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+}
+
+.break-note .break-text {
+  margin: 0;
+}
+
+.break-note .link-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent-purple);
+  cursor: pointer;
+}
+
+.break-note .link-btn:hover {
+  text-decoration: underline;
 }
 </style>

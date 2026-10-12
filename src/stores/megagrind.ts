@@ -503,6 +503,22 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     reconcileProgress()
   }
 
+  // Supportive break: switch to another activity through the same atomic
+  // lifecycle as any session change, and remember what to offer back.
+  const breakReturnType = ref<TrackerType | null>(null)
+
+  function takeBreak(type: TrackerType = 'move') {
+    const current = activeSession.value.type
+    if (current !== null && current !== 'idle') breakReturnType.value = current
+    startSession(type)
+  }
+
+  function resumeFromBreak() {
+    const back = breakReturnType.value
+    breakReturnType.value = null
+    if (back !== null) startSession(back)
+  }
+
   // If the backend wasn't up at startup, poll /api/health in the
   // background and run bootstrap once it answers — a reconnect merges
   // remote state into the running app rather than forcing a reload.
@@ -1170,6 +1186,9 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     resolveOpenEntries,
     startSession,
     stopSession,
+    takeBreak,
+    resumeFromBreak,
+    breakReturnType,
     addManualEntry,
     deleteEntry,
     updateEntry,

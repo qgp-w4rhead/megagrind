@@ -17,6 +17,7 @@ import { activityChoices } from './domain/activities'
 import OnboardingDialog from './components/OnboardingDialog.vue'
 import { activityLabel } from './domain/labels'
 import { formatDuration } from './domain/today'
+import { playChime } from './domain/sound'
 import { downloadRecoveryCopy } from './stores/persistencePlugin'
 import { pwa, applyUpdate } from './pwa/pwa'
 import type { TimeEntry, TrackerType } from './types'
@@ -251,6 +252,23 @@ function updateTheme() {
 }
 
 watch(() => store.settings.darkMode, updateTheme)
+
+// M6.3 cues: a chime and a tab-title prefix when a check prompt becomes due —
+// each wired only when its setting is enabled, with capability feedback.
+const BASE_TITLE = typeof document !== 'undefined' ? document.title : 'MegaGrind'
+
+watch(() => store.isProgressPromptDue, (due) => {
+  if (due && store.settings.soundEnabled && !playChime()) {
+    store.reportAlertFailure('Sound alerts are enabled, but audio playback is unavailable in this browser.')
+  }
+  if (typeof document !== 'undefined') {
+    document.title = due && store.settings.notificationsEnabled ? `• Check-in due — ${BASE_TITLE}` : BASE_TITLE
+  }
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  if (typeof document !== 'undefined' && document.title !== BASE_TITLE) document.title = BASE_TITLE
+})
 </script>
 
 <template>
