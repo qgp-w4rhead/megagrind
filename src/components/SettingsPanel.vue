@@ -3,8 +3,14 @@ import { ref, computed, useId } from 'vue'
 import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import { useMegagrindStore } from '../stores/megagrind'
 import { useApi, type DatabaseType } from '../composables/useApi'
-import { DEFAULT_CHORE_CATEGORIES, DEFAULT_WORK_CATEGORIES } from '../types'
+import { buildDefaultActivities, DEFAULT_CHORE_CATEGORIES, DEFAULT_WORK_CATEGORIES, type Goal } from '../types'
+import { endpointIdFor, validateBackendUrl } from '../domain/sync'
+import { listRecoveryKeys, recoveryBytes } from '../domain/backup'
+import { downloadRecoveryCopy } from '../stores/persistencePlugin'
+import { pwa, promptInstall } from '../pwa/pwa'
 import { validateSettings, hasSettingsErrors } from '../domain/settingsValidation'
+import { activityDefinitions } from '../domain/activities'
+import { goalCapacity, validateGoals, type GoalPolicy } from '../domain/goals'
 import { X, Trash2, Plus } from 'lucide-vue-next'
 import BackupPanel from './BackupPanel.vue'
 
@@ -21,6 +27,8 @@ const localSettings = ref({
   workCategories: [...(store.settings.workCategories ?? DEFAULT_WORK_CATEGORIES)],
   customChronos: [...(store.settings.customChronos ?? [])],
   weeklyAllocations: { ...store.settings.weeklyAllocations },
+  activities: (store.settings.activities ?? buildDefaultActivities()).map((a) => ({ ...a })),
+  goals: JSON.parse(JSON.stringify(store.settings.goals ?? {})) as Record<string, Goal>,
 })
 const allocPrefix = useId()
 const newChoreCategory = ref('')
@@ -30,11 +38,102 @@ const newCustomChrono = ref('')
 const isDirty = computed(() => JSON.stringify(localSettings.value) !== JSON.stringify(store.settings))
 
 const validationErrors = computed(() => validateSettings(localSettings.value))
-const validationMessages = computed(() => Object.values(validationErrors.value))
+const backendUrlError = computed(() => {
+  if (localSettings.value.backendMode === 'local') return null
+  const protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:'
+  return validateBackendUrl(localSettings.value.backendUrl, protocol)
+})
+// Activities & goals: rows are the merged definitions (built-ins, customs,
+// history-only types); goals live per activity id in the draft until Save.
+const goalRows = computed(() =>
+  activityDefinitions(localSettings.value.customChronos, store.entries.map((e) => e.type), localSettings.value.activities),
+)
+const goalErrors = computed(() => validateGoals(localSettings.value.goals))
+const goalCap = computed(() => goalCapacity(localSettings.value.goals))
+
+function goalPolicyOf(id: string): GoalPolicy {
+  return localSettings.value.goals[id]?.policy ?? 'none'
+}
+function goalHoursOf(id: string): number | string {
+  return localSettings.value.goals[id]?.hours ?? ''
+}
+function setGoalPolicy(id: string, policy: string) {
+  const goals = { ...localSettings.value.goals }
+  if (policy === 'none') delete goals[id]
+  else goals[id] = { policy: policy as Goal['policy'], hours: goals[id]?.hours ?? 0 }
+  localSettings.value.goals = goals
+}
+function setGoalHours(id: string, hours: number | null) {
+  const existing = localSettings.value.goals[id]
+  if (!existing) return
+  localSettings.value.goals = { ...localSettings.value.goals, [id]: { ...existing, hours: hours ?? NaN } }
+}
+// Materialize synthesized definitions (custom/history-only types) into the
+// draft so every row edits the same stable activity ids before Save.
+function materializeActivities() {
+  localSettings.value.activities = activityDefinitions(
+    localSettings.value.customChronos,
+    store.entries.map((e) => e.type),
+    localSettings.value.activities,
+  )
+}
+function setActivityLabel(id: string, label: string) {
+  materializeActivities()
+  localSettings.value.activities = localSettings.value.activities.map((a) =>
+    a.id === id ? { ...a, label } : a,
+  )
+}
+function toggleArchived(id: string) {
+  materializeActivities()
+  localSettings.value.activities = localSettings.value.activities.map((a) =>
+    a.id === id ? { ...a, archived: !a.archived } : a,
+  )
+}
+function moveActivity(id: string, dir: -1 | 1) {
+  materializeActivities()
+  const defs = localSettings.value.activities.map((a) => ({ ...a }))
+  const idx = defs.findIndex((d) => d.id === id)
+  const swap = idx + dir
+  if (idx < 0 || swap < 0 || swap >= defs.length) return
+  const order = defs[idx]!.order
+  defs[idx]!.order = defs[swap]!.order
+  defs[swap]!.order = order
+  localSettings.value.activities = defs
+}
+function toggleFavorite(id: string) {
+  localSettings.value.activities = localSettings.value.activities.map((a) =>
+    a.id === id ? { ...a, favorite: !a.favorite } : a,
+  )
+}
+// Reviewable adoption: copies legacy weekly targets into goal policies — the
+// draft still needs an explicit Save, and allocations stay untouched.
+function adoptAllocations() {
+  const goals = { ...localSettings.value.goals }
+  for (const [id, hours] of Object.entries(localSettings.value.weeklyAllocations)) {
+    if (typeof hours !== 'number' || !Number.isFinite(hours) || hours <= 0) continue
+    const policy: Goal['policy'] =
+      id === 'work' ? 'target' : id === 'sleep' || id === 'move' ? 'minimum' : id === 'chores' ? 'budget' : 'target'
+    goals[id] = { policy, hours }
+  }
+  localSettings.value.goals = goals
+}
+
+const validationMessages = computed(() => {
+  const messages = Object.values(validationErrors.value)
+  if (backendUrlError.value) messages.push(backendUrlError.value)
+  messages.push(...new Set(Object.values(goalErrors.value)))
+  if (goalCap.value.overBy > 0) {
+    messages.push(`Goals total ${goalCap.value.planned}h — ${goalCap.value.overBy}h over the 168-hour week. Lower or clear a goal to save.`)
+  }
+  return messages
+})
 
 const hasChanges = computed(() => {
   if (hasInvalidAllocations.value) return false
   if (hasSettingsErrors(validationErrors.value)) return false
+  if (backendUrlError.value) return false
+  if (Object.keys(goalErrors.value).length > 0) return false
+  if (goalCap.value.overBy > 0) return false
   return isDirty.value
 })
 
@@ -100,13 +199,31 @@ function addCustomChrono() {
 }
 
 function removeCustomChrono(chrono: string, event?: MouseEvent) {
+  const hasHistory = store.entries.some((e) => e.type === chrono)
   if (!event?.shiftKey) {
     const label = chrono.charAt(0).toUpperCase() + chrono.slice(1)
-    if (!confirm(`Remove custom chrono "${label}"?\n\nHold Shift while clicking to skip this confirmation.`)) {
+    const detail = hasHistory
+      ? 'Past records keep this name, and it stays hidden from new entries.'
+      : 'It has no recorded history, so it will be removed completely.'
+    if (!confirm(`Remove custom chrono "${label}"?\n\n${detail}\n\nHold Shift while clicking to skip this confirmation.`)) {
       return
     }
   }
+  if (hasHistory) {
+    // Archive rather than delete: history, filters, backups, and goal mappings
+    // keep resolving the stable id.
+    localSettings.value.customChronos = localSettings.value.customChronos.filter((c) => c !== chrono)
+    materializeActivities()
+    localSettings.value.activities = localSettings.value.activities.map((a) =>
+      a.id === chrono ? { ...a, archived: true } : a,
+    )
+    return
+  }
   localSettings.value.customChronos = localSettings.value.customChronos.filter((c) => c !== chrono)
+  localSettings.value.activities = localSettings.value.activities.filter((a) => a.id !== chrono)
+  const goals = { ...localSettings.value.goals }
+  delete goals[chrono]
+  localSettings.value.goals = goals
   delete localSettings.value.weeklyAllocations[chrono]
 }
 
@@ -129,22 +246,129 @@ async function testConnection() {
   }
 }
 
+const syncActionMessage = ref('')
+
+const lastSyncLabel = computed(() =>
+  store.lastSyncedAt === null ? 'never' : new Date(store.lastSyncedAt).toLocaleString(),
+)
+
+const syncStatusLabel = computed(() => {
+  switch (store.syncStatus) {
+    case 'local': return 'Local only'
+    case 'offline': return 'Offline — changes are queued on this device'
+    case 'pending': return 'Changes waiting to send'
+    case 'syncing': return 'Syncing'
+    case 'synced': return 'Synced'
+    case 'conflict': return 'Conflict needs a decision'
+    case 'failed': return 'A change was rejected and needs attention'
+    default: return 'Local only'
+  }
+})
+
+function describeSyncRemote(kind: string): string {
+  switch (kind) {
+    case 'entry': return 'has a different version'
+    case 'tombstone': return 'deleted it'
+    case 'preferences': return 'has different preferences'
+    default: return 'has no record of it'
+  }
+}
+
+function adoptForeignOps() {
+  const adopted = store.adoptQueuedOpsToCurrentEndpoint()
+  syncActionMessage.value =
+    adopted > 0
+      ? `${adopted} queued change(s) will be sent to this endpoint.`
+      : 'No queued changes need reassignment.'
+}
+
+function retrySync() {
+  syncActionMessage.value = 'Checking the sync endpoint…'
+  store.retrySync()
+}
+
 function saveSettings() {
   if (!hasChanges.value) return
   const prevMode = store.settings.backendMode
   const prevUrl = store.settings.backendUrl
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'same-origin'
+  const prevEndpoint = endpointIdFor(prevMode, prevUrl, origin)
+  const nextEndpoint = endpointIdFor(localSettings.value.backendMode, localSettings.value.backendUrl, origin)
+  if (prevEndpoint !== nextEndpoint) {
+    const queued = store.pendingSyncCount + store.foreignSyncCount + store.blockedSyncCount
+    const detail =
+      queued > 0
+        ? `${queued} queued change(s) stay bound to the previous endpoint and will NOT be sent to the new one. You can assign them to the new endpoint in Settings → Data Storage.`
+        : 'No queued changes are affected.'
+    const proceed = window.confirm(
+      `Change the sync endpoint?\n\n${detail}\n\nLocal entries on this device merge into the new endpoint on the next sync.`,
+    )
+    if (!proceed) return
+  }
   store.updateSettings(localSettings.value)
-  // If backend config changed, reinitialize from backend so changes take effect
-  // without requiring a page reload.
-  if (store.settings.backendMode !== 'local' &&
-      (store.settings.backendMode !== prevMode || store.settings.backendUrl !== prevUrl)) {
+  // If backend config changed, reinitialize so it takes effect without reload.
+  if (store.settings.backendMode !== 'local' && prevEndpoint !== nextEndpoint) {
     store.initFromBackend()
   }
   close()
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+}
+
+const storageUsage = ref<{ used: number; quota: number } | null>(null)
+const storageSupported = ref(false)
+const recoveryInfo = ref<{ snapshots: number; bytes: number }>({ snapshots: 0, bytes: 0 })
+
+function refreshStorageInfo() {
+  try {
+    const keys = typeof localStorage === 'undefined' ? [] : listRecoveryKeys(localStorage)
+    recoveryInfo.value = {
+      snapshots: keys.length,
+      bytes: recoveryBytes(localStorage),
+    }
+  } catch {
+    recoveryInfo.value = { snapshots: 0, bytes: 0 }
+  }
+  storageSupported.value = typeof navigator !== 'undefined' && !!navigator.storage?.estimate
+  if (storageSupported.value) {
+    navigator.storage.estimate().then((estimate) => {
+      storageUsage.value = { used: estimate.usage ?? 0, quota: estimate.quota ?? 0 }
+    }).catch(() => {
+      storageUsage.value = null
+    })
+  }
+}
+refreshStorageInfo()
+
+const storageMessage = ref('')
+
+function downloadSnapshot() {
+  storageMessage.value = downloadRecoveryCopy()
+    ? 'Recovery copy downloaded.'
+    : 'No stored data is available to download.'
+}
+
+const installMessage = ref('')
+
+async function installApp() {
+  const outcome = await promptInstall()
+  installMessage.value =
+    outcome === 'accepted'
+      ? 'Installed.'
+      : outcome === 'dismissed'
+        ? 'Install dismissed — the option stays available while the browser offers it.'
+        : 'This browser is not offering an install prompt.'
+}
+
 function clearAllData() {
-  if (confirm('Clear local tracked time, progress checks, and progress history on this device? This does not erase pending server work.')) {
+  const scope =
+    'This clears tracked entries, progress checks, and progress history on this device only.\n\n' +
+    'Queued changes waiting for your sync server stay queued. Data already stored on the server is not touched.'
+  if (confirm(`Clear local tracking history?\n\n${scope}`)) {
     store.clearLocalHistory()
     close()
   }
@@ -158,7 +382,7 @@ function clearAllData() {
         <h2>Settings</h2>
         <div class="header-right">
           <span v-if="hasChanges" class="unsaved-indicator">Unsaved changes</span>
-          <button class="close-btn" @click="close">
+          <button class="close-btn" aria-label="Close settings" @click="close">
             <X class="close-icon" />
           </button>
         </div>
@@ -285,6 +509,97 @@ function clearAllData() {
               </button>
             </div>
           </div>
+        </div>
+
+        <div class="settings-section" data-test="goals-section">
+          <h3>Activities &amp; goals</h3>
+          <p class="field-hint">
+            Favorites appear first on Today, and order decides picker placement. Goals are
+            optional weekly policies — hours left over stay unplanned. Archiving hides an
+            activity from new entries while history keeps its name.
+          </p>
+          <ul class="goal-list">
+            <li v-for="(row, index) in goalRows" :key="row.id" class="goal-row" :class="{ 'is-archived': row.archived }">
+              <label class="goal-fav" :title="`Favorite ${row.label}`">
+                <input
+                  type="checkbox"
+                  :checked="row.favorite"
+                  :aria-label="`Favorite ${row.label}`"
+                  :disabled="row.archived"
+                  @change="toggleFavorite(row.id)"
+                />
+                <span aria-hidden="true">★</span>
+              </label>
+              <input
+                :value="row.label"
+                type="text"
+                maxlength="60"
+                class="goal-name"
+                :aria-label="`Display name for ${row.id}`"
+                :aria-invalid="row.label.trim().length === 0 ? 'true' : undefined"
+                @input="setActivityLabel(row.id, ($event.target as HTMLInputElement).value)"
+              />
+              <span class="goal-controls">
+                <button
+                  type="button"
+                  class="btn-row"
+                  :aria-label="`Move ${row.label} up`"
+                  :disabled="index === 0"
+                  data-test="activity-up"
+                  @click="moveActivity(row.id, -1)"
+                >↑</button>
+                <button
+                  type="button"
+                  class="btn-row"
+                  :aria-label="`Move ${row.label} down`"
+                  :disabled="index === goalRows.length - 1"
+                  data-test="activity-down"
+                  @click="moveActivity(row.id, 1)"
+                >↓</button>
+                <button
+                  type="button"
+                  class="btn-row"
+                  :aria-label="row.archived ? `Unarchive ${row.label}` : `Archive ${row.label}`"
+                  :data-test="row.archived ? 'activity-unarchive' : 'activity-archive'"
+                  @click="toggleArchived(row.id)"
+                >{{ row.archived ? 'Unarchive' : 'Archive' }}</button>
+              </span>
+              <select
+                :value="goalPolicyOf(row.id)"
+                :aria-label="`Goal type for ${row.label}`"
+                @change="setGoalPolicy(row.id, ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="none">No goal</option>
+                <option value="target">Target</option>
+                <option value="minimum">Minimum</option>
+                <option value="budget">Budget</option>
+              </select>
+              <input
+                v-if="goalPolicyOf(row.id) !== 'none'"
+                type="number"
+                min="0"
+                max="168"
+                step="0.5"
+                class="goal-hours"
+                :value="goalHoursOf(row.id)"
+                :aria-label="`Weekly hours for ${row.label}`"
+                :aria-invalid="goalErrors[row.id] ? 'true' : undefined"
+                @input="setGoalHours(row.id, ($event.target as HTMLInputElement).valueAsNumber)"
+              />
+            </li>
+          </ul>
+          <p class="goal-capacity" :class="{ 'is-over': goalCap.overBy > 0 }" data-test="goal-capacity">
+            Planned: {{ goalCap.planned }}h of 168h
+            <template v-if="goalCap.overBy > 0">— {{ goalCap.overBy }}h over the week.</template>
+            <template v-else>— {{ goalCap.free }}h stays unplanned.</template>
+          </p>
+          <button type="button" class="btn-test" data-test="adopt-allocations" @click="adoptAllocations">
+            Use weekly targets as goals
+          </button>
+          <p class="field-hint">
+            Copies the weekly allocations above into goal policies for your review — nothing
+            changes until you press Save.
+          </p>
         </div>
 
         <div class="settings-section">
@@ -467,10 +782,71 @@ function clearAllData() {
                 Saved on this device only. Tracking works without a server.
               </template>
               <template v-else>
-                Tracking keeps working if the server is unreachable.
-                {{ store.pendingSyncCount }} change(s) waiting to send. No sync confirmation has been recorded yet.
+                {{ syncStatusLabel }}.
+                {{ store.pendingSyncCount }} waiting<template v-if="store.blockedSyncCount > 0">,
+                  {{ store.blockedSyncCount }} need a decision</template><template v-if="store.foreignSyncCount > 0">,
+                  {{ store.foreignSyncCount }} bound to a different endpoint</template>.
+                Last successful sync: {{ lastSyncLabel }}.
               </template>
             </p>
+            <div v-if="store.settings.backendMode !== 'local'" class="sync-actions">
+              <button type="button" class="btn-test" data-test="sync-retry" @click="retrySync">
+                Retry sync
+              </button>
+              <button
+                v-if="store.foreignSyncCount > 0"
+                type="button"
+                class="btn-test"
+                data-test="sync-adopt"
+                @click="adoptForeignOps"
+              >
+                Send {{ store.foreignSyncCount }} queued change(s) to this endpoint
+              </button>
+            </div>
+            <p v-if="syncActionMessage" class="sync-action-message" role="status">{{ syncActionMessage }}</p>
+            <ul v-if="store.syncConflicts.length > 0" class="sync-conflict-list" data-test="sync-conflicts">
+              <li v-for="conflict in store.syncConflicts" :key="conflict.resource" class="sync-conflict-item">
+                <span class="sync-conflict-text">
+                  {{ conflict.label }} — the server {{ describeSyncRemote(conflict.remoteKind) }}
+                </span>
+                <span class="sync-conflict-buttons">
+                  <button
+                    type="button"
+                    class="btn-test"
+                    :data-test="`settings-keep-local-${conflict.resource}`"
+                    @click="store.resolveSyncConflict(conflict.resource, 'keep-local')"
+                  >
+                    Keep mine
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-test"
+                    :data-test="`settings-keep-remote-${conflict.resource}`"
+                    @click="store.resolveSyncConflict(conflict.resource, 'keep-remote')"
+                  >
+                    Use server's
+                  </button>
+                </span>
+              </li>
+            </ul>
+            <div class="local-storage" data-test="local-storage">
+              <p class="storage-status" data-test="storage-usage">
+                <template v-if="storageUsage">
+                  This device is using about {{ formatBytes(storageUsage.used) }} of
+                  {{ formatBytes(storageUsage.quota) }} browser storage.
+                </template>
+                <template v-else-if="storageSupported">Reading storage usage…</template>
+                <template v-else>Browser storage usage reporting is not available here.</template>
+              </p>
+              <p class="storage-status" data-test="recovery-snapshots">
+                {{ recoveryInfo.snapshots }} recovery snapshot(s), {{ formatBytes(recoveryInfo.bytes) }}.
+                Snapshots live in the same browser storage — they help with mistakes, not device loss.
+              </p>
+              <button type="button" class="btn-test" data-test="download-recovery" @click="downloadSnapshot">
+                Download recovery copy
+              </button>
+              <p v-if="storageMessage" class="sync-action-message" role="status" data-test="storage-message">{{ storageMessage }}</p>
+            </div>
           </div>
 
           <div v-if="localSettings.backendMode !== 'local'" class="backend-config">
@@ -480,11 +856,20 @@ function clearAllData() {
                 <input id="settings-field-19"
                   v-model="localSettings.backendUrl"
                   type="text"
-                  placeholder="http://localhost:3000"
+                  placeholder="http://localhost:3000 — empty uses this app’s origin"
+                  :aria-invalid="backendUrlError ? 'true' : undefined"
+                  :aria-describedby="backendUrlError ? 'backend-url-error' : 'backend-url-hint'"
                 />
+                <p v-if="backendUrlError" id="backend-url-error" class="field-error" role="alert" data-test="backend-url-error">
+                  {{ backendUrlError }}
+                </p>
+                <p v-else id="backend-url-hint" class="field-hint">
+                  Device-only setting — it never syncs and is excluded from backups.
+                </p>
               </div>
               <button
                 class="btn-test"
+                data-test="test-connection"
                 :disabled="connectionStatus === 'testing'"
                 @click="testConnection"
               >
@@ -516,6 +901,40 @@ function clearAllData() {
               Clear local tracking history
             </button>
           </div>
+        </div>
+
+        <div class="settings-section" data-test="install-section">
+          <h3>Install this app</h3>
+          <p v-if="pwa.capability === 'installed'" class="field-hint" data-test="install-installed">
+            MegaGrind is installed and running as an app.
+          </p>
+          <template v-else-if="pwa.capability === 'installable'">
+            <div class="data-actions">
+              <button type="button" class="btn-action" data-test="install-app" @click="installApp">
+                Install MegaGrind
+              </button>
+            </div>
+            <p class="field-hint">
+              Adds an app icon and a standalone window. Tracking works the same either way.
+            </p>
+          </template>
+          <p v-else-if="pwa.capability === 'ios-manual'" class="field-hint" data-test="install-ios">
+            On iPhone or iPad: open the Share menu and choose “Add to Home Screen”.
+          </p>
+          <p v-else-if="pwa.capability === 'insecure'" class="field-hint" data-test="install-insecure">
+            Installing needs a secure context (HTTPS or localhost). Tracking still works in this browser.
+          </p>
+          <p v-else class="field-hint" data-test="install-unsupported">
+            This browser does not offer an install prompt — tracking still works here.
+          </p>
+          <p v-if="installMessage" class="sync-action-message" role="status" data-test="install-message">
+            {{ installMessage }}
+          </p>
+          <p class="field-hint">
+            Installing is optional and changes no guarantees: there are no background alarms or
+            push delivery, sync only runs while the app is open, and browser data can still be
+            cleared by the system.
+          </p>
         </div>
       </div>
 
@@ -1007,6 +1426,15 @@ function clearAllData() {
   cursor: not-allowed;
 }
 
+.local-storage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-color);
+}
+
 .connection-info {
   display: flex;
   align-items: center;
@@ -1172,6 +1600,167 @@ function clearAllData() {
   width: 14px;
   height: 14px;
 }
+
+.sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.sync-action-message {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.sync-conflict-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sync-conflict-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+}
+
+.sync-conflict-text {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.sync-conflict-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.field-error {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-danger-text);
+}
+
+.field-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.goal-list {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.goal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-height: 44px;
+}
+
+.goal-fav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.goal-fav input {
+  width: 18px;
+  height: 18px;
+}
+
+.goal-fav input:checked + span {
+  color: var(--color-primary);
+}
+
+.goal-name {
+  flex: 1 1 140px;
+  min-width: 120px;
+  min-height: 44px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9375rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+}
+
+.goal-name:focus {
+  outline: none;
+  border-color: var(--accent-purple);
+}
+
+.goal-row.is-archived .goal-name {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.goal-controls {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.btn-row {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.3rem 0.6rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.btn-row:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.btn-row:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.goal-row select {
+  min-height: 44px;
+  font-size: 0.875rem;
+}
+
+.goal-hours {
+  width: 84px;
+  min-height: 44px;
+  font-size: 1rem;
+}
+
+.goal-capacity {
+  margin: 0.5rem 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.goal-capacity.is-over {
+  color: var(--color-danger-text);
+  font-weight: 650;
+}
+
 .status-badge {
   display: inline-flex;
   align-items: center;

@@ -63,9 +63,9 @@ describe('SettingsPanel', () => {
     const api = useApi()
     api.setBaseUrl('')
     const { wrapper } = await mountSettings()
-    const url = wrapper.find('input[placeholder="http://localhost:3000"]')
+    const url = wrapper.find('#settings-field-19')
     await url.setValue('http://candidate.test:4000')
-    await wrapper.find('.btn-test').trigger('click')
+    await wrapper.find('[data-test="test-connection"]').trigger('click')
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledWith('http://candidate.test:4000/api/health', expect.anything())
     expect(api.baseUrl.value).toBe('')
@@ -92,6 +92,50 @@ describe('SettingsPanel', () => {
     expect(wrapper.text()).toContain('Local on this device')
     expect(wrapper.find('[data-test="storage-status"]').text()).toContain('Saved on this device only')
     expect(wrapper.text()).not.toContain('Synced')
+    wrapper.unmount()
+  })
+
+  it('renames, reorders, and archives activities via stable ids on save', async () => {
+    const store = useMegagrindStore()
+    const { wrapper } = await mountSettings()
+    const nameInput = wrapper.find('input[aria-label="Display name for work"]')
+    await nameInput.setValue('Deep Work')
+    // Reorder: move Sleep (index 2 in built-in order) above Chores.
+    await wrapper.find('button[aria-label="Move Sleep up"]').trigger('click')
+    await wrapper.find('button[aria-label="Archive Leisure"]').trigger('click')
+    await wrapper.find('.btn-save').trigger('click')
+    const work = store.settings.activities.find((a) => a.id === 'work')!
+    expect(work.label).toBe('Deep Work')
+    const sleepOrder = store.settings.activities.find((a) => a.id === 'sleep')!.order
+    const choresOrder = store.settings.activities.find((a) => a.id === 'chores')!.order
+    expect(sleepOrder).toBeLessThan(choresOrder)
+    expect(store.settings.activities.find((a) => a.id === 'leisure')!.archived).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('archives a custom activity referenced by history instead of deleting it', async () => {
+    const store = useMegagrindStore()
+    store.settings.customChronos.push('gardening')
+    store.entries.push({ id: 'e1', type: 'gardening', start: Date.now() - 3600_000, end: Date.now() - 1800_000 })
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    const { wrapper } = await mountSettings()
+    await wrapper.find('button[aria-label="Remove gardening"]').trigger('click')
+    await wrapper.find('.btn-save').trigger('click')
+    const def = store.settings.activities.find((a) => a.id === 'gardening')
+    expect(def).toBeDefined()
+    expect(def!.archived).toBe(true)
+    expect(def!.label).toBe('Gardening')
+    expect(store.entries.find((e) => e.id === 'e1')!.type).toBe('gardening')
+    wrapper.unmount()
+  })
+
+  it('blocks saving while an activity name is empty', async () => {
+    const store = useMegagrindStore()
+    const { wrapper } = await mountSettings()
+    await wrapper.find('input[aria-label="Display name for work"]').setValue('   ')
+    expect(wrapper.find('[data-test="settings-errors"]').text()).toContain('non-empty')
+    await wrapper.find('.btn-save').trigger('click')
+    expect(store.settings.activities.find((a) => a.id === 'work')!.label).toBe('Work')
     wrapper.unmount()
   })
 })
