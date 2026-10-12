@@ -17,6 +17,7 @@ import { activityChoices } from './domain/activities'
 import { activityLabel } from './domain/labels'
 import { formatDuration } from './domain/today'
 import { downloadRecoveryCopy } from './stores/persistencePlugin'
+import { pwa, applyUpdate } from './pwa/pwa'
 import type { TimeEntry, TrackerType } from './types'
 import type { AddEntryEvent, EntryRef, StartActivityEvent } from './types/appEvents'
 
@@ -57,6 +58,24 @@ function categoriesFor(type: TrackerType): string[] | undefined {
   if (type === 'work') return store.settings.workCategories
   if (type === 'chores') return store.settings.choreCategories
   return undefined
+}
+
+// The update transition is explicit and only fires when nothing can be lost:
+// no running session, no open dialog or dirty form, no storage recovery in
+// progress, and no queued/conflicted server writes.
+const updateBlockedReason = computed(() => {
+  if (store.isRunning) return 'a session is still running'
+  if (store.persistenceState !== 'ready') return 'storage needs attention first'
+  if (store.pendingSyncCount + store.blockedSyncCount + store.foreignSyncCount > 0 || store.syncConflicts.length > 0) {
+    return 'queued server changes are unresolved'
+  }
+  if (pickerOpen.value || editor.value || pendingDeleteId.value) return 'close the open dialog first'
+  return null
+})
+
+function applyAppUpdate() {
+  if (updateBlockedReason.value) return
+  applyUpdate()
 }
 
 function startActivity(event: StartActivityEvent) {
@@ -280,7 +299,22 @@ watch(() => store.settings.darkMode, updateTheme)
       </div>
     </div>
 
-    <p v-if="feedback" class="app-feedback" role="status">
+    <div v-if="pwa.updateReady" class="update-banner" role="status" data-test="update-banner">
+      <p><strong>Update ready</strong> — MegaGrind downloaded a new shell.</p>
+      <p v-if="updateBlockedReason" class="update-note" data-test="update-blocked">
+        Applying is paused while {{ updateBlockedReason }}.
+      </p>
+      <button
+        type="button"
+        class="btn-action"
+        data-test="apply-update"
+        :disabled="updateBlockedReason !== null"
+        @click="applyAppUpdate"
+      >Apply update</button>
+    </div>
+
+    <div class="sr-only" role="status" aria-live="polite">{{ feedback }}</div>
+    <p v-if="feedback" class="app-feedback">
       {{ feedback }}
       <button
         v-if="undo"
@@ -480,7 +514,8 @@ watch(() => store.settings.darkMode, updateTheme)
 }
 
 .storage-warning,
-.app-feedback {
+.app-feedback,
+.update-banner {
   margin: 0 20px 12px;
   padding: 10px 12px;
   border-radius: 8px;
@@ -490,6 +525,21 @@ watch(() => store.settings.darkMode, updateTheme)
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+.update-banner {
+  border-color: var(--color-primary);
+  justify-content: space-between;
+}
+
+.update-banner p {
+  margin: 0;
+}
+
+.update-note {
+  width: 100%;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
 }
 
 .storage-warning {
@@ -566,7 +616,8 @@ watch(() => store.settings.darkMode, updateTheme)
   }
 
   .storage-warning,
-  .app-feedback {
+  .app-feedback,
+  .update-banner {
     margin: 0 14px 12px;
   }
 }
