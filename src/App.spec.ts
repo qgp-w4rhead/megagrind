@@ -46,6 +46,8 @@ function prepareStore() {
   const store = useMegagrindStore()
   store.settings.backendMode = 'local'
   store.settings.darkMode = 'dark'
+  // These tests model an established user — onboarding must not stack a dialog.
+  store.settings.onboardingCompleted = true
   return store
 }
 
@@ -191,6 +193,33 @@ describe('App editor and picker state', () => {
     await flushPromises()
     expect(wrapper.find('[data-test="start-picked"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-test="pick-activity"]').length).toBeGreaterThan(0)
+  })
+})
+
+describe('App onboarding', () => {
+  it('shows for a genuinely fresh install; skipping completes it without goals', async () => {
+    const store = useMegagrindStore()
+    store.settings.backendMode = 'local'
+    store.settings.darkMode = 'dark'
+    const { router, wrapper } = mountApp()
+    await router.push('/')
+    await router.isReady()
+    await flushPromises()
+    expect(wrapper.find('[data-test="onboarding-skip"]').exists()).toBe(true)
+    await wrapper.find('[data-test="onboarding-skip"]').trigger('click')
+    await flushPromises()
+    expect(store.settings.onboardingCompleted).toBe(true)
+    expect(store.settings.goals).toEqual({})
+    expect(wrapper.find('[data-test="onboarding-skip"]').exists()).toBe(false)
+  })
+
+  it('an established store never shows the onboarding dialog', async () => {
+    prepareStore()
+    const { router, wrapper } = mountApp()
+    await router.push('/')
+    await router.isReady()
+    await flushPromises()
+    expect(wrapper.find('[data-test="onboarding-skip"]').exists()).toBe(false)
   })
 })
 

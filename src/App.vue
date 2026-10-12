@@ -14,6 +14,7 @@ import { useProgressScheduler } from './composables/useProgressScheduler'
 import { useShellLayout } from './composables/useShellLayout'
 import { useTabCoordination } from './composables/useTabCoordination'
 import { activityChoices } from './domain/activities'
+import OnboardingDialog from './components/OnboardingDialog.vue'
 import { activityLabel } from './domain/labels'
 import { formatDuration } from './domain/today'
 import { downloadRecoveryCopy } from './stores/persistencePlugin'
@@ -326,6 +327,8 @@ watch(() => store.settings.darkMode, updateTheme)
         Undo delete of {{ undo.label }}
       </button>
     </p>
+
+    <OnboardingDialog v-if="!store.settings.onboardingCompleted" />
 
     <AppDialog :show="pickerOpen" title="All activities" @close="pickerOpen = false">
       <ActivityPicker

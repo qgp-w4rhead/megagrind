@@ -361,6 +361,48 @@ describe('initFromBackend', () => {
   })
 })
 
+describe('onboarding', () => {
+  it('a fresh store starts with onboarding pending and no goals', () => {
+    const store = useMegagrindStore()
+    expect(store.settings.onboardingCompleted).toBe(false)
+    expect(store.settings.goals).toEqual({})
+    expect(store.settings.activities.map((a) => a.id)).toEqual(
+      ['work', 'chores', 'sleep', 'cook', 'shower', 'move', 'leisure', 'unexpected', 'buffer'],
+    )
+  })
+
+  it('skipping completes onboarding without creating goals', () => {
+    const store = useMegagrindStore()
+    store.completeOnboarding()
+    expect(store.settings.onboardingCompleted).toBe(true)
+    expect(store.settings.goals).toEqual({})
+  })
+
+  it('completing applies favorites, goals, week rollover and theme', () => {
+    const store = useMegagrindStore()
+    store.completeOnboarding({
+      favorites: ['work', 'sleep'],
+      goals: { work: { policy: 'target', hours: 40 }, sleep: { policy: 'minimum', hours: 49 } },
+      weekRolloverDay: 1,
+      darkMode: 'light',
+    })
+    expect(store.settings.onboardingCompleted).toBe(true)
+    expect(store.settings.goals.work).toEqual({ policy: 'target', hours: 40 })
+    expect(store.settings.weekRolloverDay).toBe(1)
+    expect(store.settings.darkMode).toBe('light')
+    expect(store.settings.activities.find((a) => a.id === 'work')?.favorite).toBe(true)
+    expect(store.settings.activities.find((a) => a.id === 'leisure')?.favorite).toBe(false)
+  })
+
+  it('tracking can start while onboarding is still pending', () => {
+    const store = useMegagrindStore()
+    store.startSession('work')
+    expect(store.settings.onboardingCompleted).toBe(false)
+    expect(store.isRunning).toBe(true)
+    expect(store.currentSessionType).toBe('work')
+  })
+})
+
 describe('remote restore reconciliation', () => {
   function backupDoc(entries: TimeEntry[], events: unknown[] = []) {
     return JSON.stringify({

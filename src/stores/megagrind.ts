@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch, onScopeDispose } from 'vue'
-import type { TimeEntry, TimeRange, EntrySlice, TrackerType, WorkCategory, Settings, WeekData, SyncEnvelope, SyncOpKind, SyncConflictInfo, SyncStatus, ProgressEvent } from '../types'
+import type { TimeEntry, TimeRange, EntrySlice, TrackerType, WorkCategory, Settings, WeekData, SyncEnvelope, SyncOpKind, SyncConflictInfo, SyncStatus, ProgressEvent, Goal } from '../types'
 import { applyImport, decodeImportDocument, makeFullBackup, makePeriodReport, previewImport, STORAGE_KEY, writeRecoverySnapshot, type FullBackupV2, type ImportApplyOptions, type ImportApplyResult, type ImportPreview, type PersistenceState } from '../domain/backup'
 import { DEFAULT_SETTINGS, DEFAULT_CHORE_CATEGORIES, DEFAULT_WORK_CATEGORIES, buildDefaultActivities, createDefaultSettings } from '../types'
 import { activityDefinitions } from '../domain/activities'
@@ -984,6 +984,31 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     }
   }
 
+  // First-use setup is skippable and device-local: finishing or skipping marks
+  // it complete, and every chosen value lands in ordinary settings edits.
+  function completeOnboarding(patch?: {
+    favorites?: TrackerType[]
+    goals?: Record<string, Goal>
+    weekRolloverDay?: number
+    weekRolloverHour?: number
+    darkMode?: Settings['darkMode']
+  }) {
+    if (patch?.weekRolloverDay !== undefined) settings.value.weekRolloverDay = patch.weekRolloverDay
+    if (patch?.weekRolloverHour !== undefined) settings.value.weekRolloverHour = patch.weekRolloverHour
+    if (patch?.darkMode !== undefined) settings.value.darkMode = patch.darkMode
+    if (patch?.favorites) {
+      const wanted = new Set(patch.favorites)
+      const defs = activityDefinitions(
+        settings.value.customChronos,
+        entries.value.map((e) => e.type),
+        settings.value.activities,
+      )
+      settings.value.activities = defs.map((d, i) => ({ ...d, favorite: wanted.has(d.id), order: i }))
+    }
+    if (patch?.goals) settings.value.goals = { ...patch.goals }
+    settings.value.onboardingCompleted = true
+  }
+
   function updateSettings(newSettings: Partial<Settings>) {
     settings.value = { ...settings.value, ...newSettings }
     enqueuePreferences()
@@ -1166,6 +1191,7 @@ export const useMegagrindStore = defineStore('megagrind', () => {
     enableFocusMode,
     disableFocusMode,
     migrateSettings,
+    completeOnboarding,
     updateSettings,
     exportWeekData,
     exportFullBackup,
