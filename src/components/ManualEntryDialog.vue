@@ -320,8 +320,16 @@ function touch() {
 .field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
+}
+
+.field > label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 
 .field-check {
@@ -330,17 +338,38 @@ function touch() {
   gap: 8px;
 }
 
+.field-check > label {
+  font-family: var(--font-ui);
+  font-size: 0.9375rem;
+  color: var(--color-text);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .field input:not([type='checkbox']),
 .field select {
   width: 100%;
   min-height: 44px;
   padding: 8px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
   color: var(--color-text);
   font: inherit;
   font-size: 1rem;
+}
+
+.field input:not([type='checkbox']):focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.field input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--color-primary);
+  flex-shrink: 0;
 }
 
 .field input[aria-invalid='true'] {
@@ -358,10 +387,10 @@ function touch() {
 }
 
 .overlap {
-  padding: 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-surface-raised);
+  padding: 12px 14px;
+  border: 1px solid color-mix(in oklch, var(--color-danger), transparent 55%);
+  border-radius: var(--radius-control);
+  background: color-mix(in oklch, var(--color-danger), transparent 90%);
 }
 
 .actions {

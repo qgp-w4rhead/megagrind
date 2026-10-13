@@ -228,6 +228,7 @@ function apply() {
 .import-done {
   color: var(--color-text-muted);
   font-size: 0.9375rem;
+  line-height: 1.5;
 }
 
 .import-error {
@@ -246,6 +247,11 @@ function apply() {
   gap: 10px;
 }
 
+.report-export > h4,
+.restore-box > h4 {
+  font-size: 0.8125rem;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -253,13 +259,34 @@ function apply() {
   min-width: min(100%, 220px);
 }
 
+.field label,
+.field-label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
 .field input {
   min-height: 44px;
   padding: 8px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
   color: var(--color-text);
+  font: inherit;
+  font-size: 0.9375rem;
+}
+
+.field input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.field input:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 1px;
 }
 
 .field-label,
@@ -268,15 +295,22 @@ h5 {
   font-weight: 650;
 }
 
+h5 {
+  font-size: 0.8125rem;
+}
+
 .check-row {
   display: flex;
   gap: 8px;
   align-items: flex-start;
+  font-size: 0.9375rem;
 }
 
 .check-row input {
   width: 20px;
   height: 20px;
+  accent-color: var(--color-primary);
+  flex-shrink: 0;
 }
 
 .preview,
@@ -284,24 +318,66 @@ h5 {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 10px;
-  background: var(--color-surface-raised);
+  padding: 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
+}
+
+.conflict-card p {
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.conflict-card label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  font-size: 0.9375rem;
+}
+
+.conflict-card input[type='radio'] {
+  accent-color: var(--color-primary);
+}
+
+.preview-counts {
+  gap: 0;
+  border-top: 1px solid var(--hairline);
 }
 
 .preview-counts > div {
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 16px 4px 0;
+  margin-right: 16px;
+  border-right: 1px solid var(--hairline);
 }
 
-.preview-counts dt,
+.preview-counts > div:last-child {
+  border-right: none;
+}
+
+.preview-counts dt {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
 .preview-counts dd {
+  font-family: var(--font-mono);
+  font-size: 1.125rem;
   font-variant-numeric: tabular-nums;
+  color: var(--color-text);
 }
 
 .warning-list {
   color: var(--color-danger-text);
+  font-size: 0.875rem;
+  line-height: 1.5;
   margin: 0;
   padding-left: 18px;
 }

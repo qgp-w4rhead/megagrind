@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useMegagrindStore } from '../stores/megagrind'
 import { activityLabel } from '../domain/labels'
+import { getTrackerConfig } from '../config/trackers'
 import type { TrackerType } from '../types'
 import type { StartActivityEvent } from '../types/appEvents'
 
@@ -26,6 +27,10 @@ const category = ref('')
 
 function labelOf(type: TrackerType): string {
   return activityLabel(type, store.settings.activities)
+}
+
+function accentOf(type: TrackerType): string {
+  return getTrackerConfig(type).accent
 }
 
 const filtered = computed(() => {
@@ -66,7 +71,13 @@ function start() {
 
     <ul v-if="!selected" class="picker-list" aria-label="Activities">
       <li v-for="type in filtered" :key="type">
-        <button type="button" class="picker-option" data-test="pick-activity" @click="choose(type)">
+        <button
+          type="button"
+          class="picker-option"
+          :style="{ '--activity-accent': accentOf(type) }"
+          data-test="pick-activity"
+          @click="choose(type)"
+        >
           {{ labelOf(type) }}
           <span v-if="type === currentType" class="picker-current">(running)</span>
         </button>
@@ -110,8 +121,16 @@ function start() {
 .picker-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
+}
+
+.picker-field label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 
 .picker-field input,
@@ -119,12 +138,18 @@ function start() {
   width: 100%;
   min-height: 44px;
   padding: 8px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
   color: var(--color-text);
   font: inherit;
   font-size: 1rem;
+}
+
+.picker-field input:focus,
+.picker-field select:focus {
+  outline: none;
+  border-color: var(--color-primary);
 }
 
 .picker-list {
@@ -136,17 +161,27 @@ function start() {
 }
 
 .picker-option {
+  --activity-accent: var(--color-border);
   width: 100%;
   min-height: 44px;
-  padding: 8px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: transparent;
+  padding: 8px 10px 8px 14px;
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--activity-accent);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
   color: var(--color-text);
   font: inherit;
+  font-size: 0.9375rem;
   text-align: left;
   overflow-wrap: anywhere;
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.picker-option:hover {
+  background: var(--control-bg-hover);
+  border-color: var(--color-border);
+  border-left-color: var(--activity-accent);
 }
 
 .picker-current,

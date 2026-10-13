@@ -75,22 +75,25 @@ const alertMessage = computed(() => {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
   margin-top: 2rem;
   padding-top: 1.5rem;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--hairline);
 }
 
 .check-details-title {
-  margin: 0 0 0.25rem 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--accent-purple);
+  margin: 0 0 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
 }
 
 .progress-status {
   margin: 0;
-  color: var(--text-muted);
+  color: var(--color-text-muted);
   font-size: 0.875rem;
   line-height: 1.3;
   white-space: nowrap;
@@ -101,7 +104,15 @@ const alertMessage = computed(() => {
 .focus-time {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
+  color: var(--color-text);
+}
+
+.paused-label {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
 }
 
 .progress-counts {
@@ -112,8 +123,8 @@ const alertMessage = computed(() => {
 }
 
 .progress-counts dt {
-  color: var(--text-muted);
-  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
 }
 
 .progress-counts dd {
@@ -125,7 +136,7 @@ const alertMessage = computed(() => {
 
 .alerts-status {
   margin: 0;
-  color: var(--text-muted);
+  color: var(--color-text-muted);
   font-size: 0.9375rem;
 }
 
@@ -134,7 +145,7 @@ const alertMessage = computed(() => {
   flex-direction: column;
   gap: 8px;
   margin: 0;
-  color: var(--text-muted);
+  color: var(--color-text-muted);
   font-size: 0.9375rem;
 }
 
@@ -147,7 +158,7 @@ const alertMessage = computed(() => {
   background: none;
   padding: 0;
   font: inherit;
-  color: var(--accent-purple);
+  color: var(--color-primary);
   cursor: pointer;
 }
 

@@ -97,9 +97,11 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   max-height: calc(var(--vv-height, 100dvh) - 24px);
-  background: var(--color-surface);
+  background: var(--surface-sheen);
   border: 1px solid var(--color-border);
-  border-radius: 12px;
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
 }
 
 .app-dialog-header {
@@ -107,37 +109,47 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--color-border-subtle);
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--hairline);
 }
 
 .app-dialog-title {
-  font-size: 1.05rem;
+  font-size: 1.125rem;
   font-weight: 650;
+  letter-spacing: -0.01em;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .app-dialog-close {
-  min-height: 44px;
-  min-width: 44px;
+  min-height: 40px;
+  min-width: 40px;
   padding: 0 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
   color: var(--color-text);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
   cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.app-dialog-close:hover {
+  background: var(--control-bg-hover);
 }
 
 .app-dialog-body {
-  padding: 16px;
+  padding: 18px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
 
 .app-dialog-footer {
-  padding: 12px 16px;
-  border-top: 1px solid var(--color-border-subtle);
+  padding: 14px 18px;
+  border-top: 1px solid var(--hairline);
+  background: color-mix(in oklch, var(--color-surface), var(--color-page) 35%);
   display: flex;
   flex-wrap: wrap;
   gap: 8px;

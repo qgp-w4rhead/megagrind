@@ -193,9 +193,9 @@ function onManualSave(entry: {
 <style scoped>
 .session-tracker {
   padding: 12px;
-  border-radius: 10px;
-  background: var(--surface, rgba(255, 255, 255, 0.03));
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
+  border: 1px solid var(--hairline);
   border-left: 3px solid var(--accent, #8a8f98);
   display: flex;
   flex-direction: column;
@@ -240,12 +240,13 @@ function onManualSave(entry: {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 10px;
-  border-radius: 6px;
-  border: none;
+  padding: 6px 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--hairline);
+  font: inherit;
   font-size: 0.75rem;
   cursor: pointer;
-  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+  background: var(--color-surface-raised);
   color: inherit;
 }
 
@@ -283,19 +284,21 @@ function onManualSave(entry: {
 .form-input {
   flex: 1;
   min-width: 0;
-  padding: 5px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
-  background: var(--surface, rgba(0, 0, 0, 0.2));
+  padding: 6px 8px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--hairline);
+  background: var(--control-bg);
   color: inherit;
-  font-size: 0.75rem;
+  font: inherit;
+  font-size: 0.8125rem;
 }
 
 .tracker-totals {
   display: flex;
   gap: 12px;
+  font-family: var(--font-mono);
   font-size: 0.7rem;
-  color: var(--text-muted, #888);
+  color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
 }
 </style>

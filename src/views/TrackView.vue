@@ -24,6 +24,10 @@ const store = useMegagrindStore()
 const favoritesListView = ref(false)
 
 const presentation = computed(() => todayPresentation(store.entries, store.now))
+const coveragePct = computed(() => {
+  const span = presentation.value.covered + presentation.value.untracked
+  return span > 0 ? (presentation.value.covered / span) * 100 : 0
+})
 const favorites = computed(() => favoriteActivities(store.entries, store.settings.activities))
 const recent = computed(() => recentFinishedEntries(store.entries, 5))
 const dateLabel = computed(() =>
@@ -62,30 +66,33 @@ function entryDuration(e: { start: number; end: number | null }): string {
 
 <template>
   <div class="today" data-test="today-view">
-    <header class="today-header">
-      <p class="today-date">{{ dateLabel }}</p>
-      <h1 class="today-title">Today</h1>
+    <header class="page-head">
+      <p class="eyebrow">{{ dateLabel }}</p>
+      <h1 class="page-title">Today</h1>
     </header>
 
-    <section class="today-summary" aria-label="Today summary">
-      <dl class="summary-stats">
-        <div>
+    <section class="today-summary panel" aria-label="Today summary">
+      <dl class="summary-stats stats">
+        <div class="stat">
           <dt>Tracked</dt>
           <dd data-test="covered-total">{{ formatDuration(presentation.covered) }}</dd>
         </div>
-        <div>
+        <div class="stat">
           <dt>Untracked</dt>
           <dd data-test="untracked-total">{{ formatDuration(presentation.untracked) }}</dd>
         </div>
-        <div v-if="presentation.adjustments.length > 0">
+        <div v-if="presentation.adjustments.length > 0" class="stat">
           <dt>Net recorded time</dt>
           <dd data-test="net-total">{{ formatDuration(presentation.net) }}</dd>
         </div>
-        <div v-else-if="presentation.overlap">
+        <div v-else-if="presentation.overlap" class="stat">
           <dt>Activity sum (overlaps included)</dt>
           <dd data-test="activity-sum">{{ formatDuration(presentation.normalSum) }}</dd>
         </div>
       </dl>
+      <div class="coverage-track" aria-hidden="true">
+        <div class="coverage-fill" :style="{ width: coveragePct + '%' }" />
+      </div>
       <p v-if="presentation.overlap" class="overlap-warning" role="status" data-test="overlap-warning">
         Recorded activities overlap by {{ formatDuration(presentation.normalSum - presentation.covered) }}.
         Tracked counts each moment once.
@@ -118,8 +125,8 @@ function entryDuration(e: { start: number; end: number | null }): string {
           :style="{ '--accent': accentOf(type) }"
           @click="startFavorite(type)"
         >
-          <component :is="iconOf(type)" :size="20" aria-hidden="true" />
-          <span class="sr-only">{{ labelOf(type) }}</span>
+          <component :is="iconOf(type)" :size="22" aria-hidden="true" class="favorite-glyph" />
+          <span class="favorite-name">{{ labelOf(type) }}</span>
         </button>
       </div>
       <div v-else class="favorite-grid">
@@ -157,7 +164,13 @@ function entryDuration(e: { start: number; end: number | null }): string {
     <section class="today-recent" aria-labelledby="today-recent-heading">
       <h2 id="today-recent-heading" class="section-heading">Recent</h2>
       <ol v-if="recent.length" class="recent-list">
-        <li v-for="e in recent" :key="e.id" class="recent-item" data-test="recent-item">
+        <li
+          v-for="e in recent"
+          :key="e.id"
+          class="recent-item"
+          data-test="recent-item"
+          :style="{ '--accent': accentOf(e.type) }"
+        >
           <div class="recent-text">
             <span class="recent-label">{{ labelOf(e.type) }}</span>
             <span class="recent-when" data-test="recent-when">{{ formatWhen(e.start) }}, {{ clockOf(e.start) }} to {{ clockOf(e.end ?? e.start) }}</span>
@@ -177,7 +190,7 @@ function entryDuration(e: { start: number; end: number | null }): string {
         </li>
       </ol>
       <p class="recent-history">
-        <RouterLink to="/history">All records in History</RouterLink>
+        <RouterLink to="/history" class="history-link">All records in History →</RouterLink>
       </p>
     </section>
   </div>
@@ -187,63 +200,60 @@ function entryDuration(e: { start: number; end: number | null }): string {
 .today {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 26px;
   min-width: 0;
-  max-width: 760px;
+  max-width: 780px;
   width: 100%;
   margin: 0 auto;
-}
-
-.today-date {
-  color: var(--color-text-muted);
-  font-size: 0.9375rem;
-}
-
-.today-title {
-  font-family: var(--font-ui);
-  font-size: 1.75rem;
-  font-weight: 650;
 }
 
 .today-summary {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  overflow: hidden;
 }
 
 .summary-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px 24px;
+  padding-block: 2px;
 }
 
-.summary-stats dt {
-  color: var(--color-text-muted);
-  font-size: 0.875rem;
+.coverage-track {
+  height: 3px;
+  background: var(--control-bg);
+  border-top: 1px solid var(--hairline);
 }
 
-.summary-stats dd {
-  font-family: var(--font-mono);
-  font-size: 1.5rem;
-  font-variant-numeric: tabular-nums;
+.coverage-fill {
+  height: 100%;
+  background: var(--color-primary);
+  box-shadow: 0 0 10px color-mix(in oklch, var(--color-primary), transparent 40%);
+  transition: width 0.4s ease;
 }
 
 .overlap-warning {
-  padding: 8px 10px;
-  border-left: 4px solid var(--color-danger);
-  background: var(--color-surface-raised);
-  font-size: 0.9375rem;
+  padding: 10px 16px;
+  border-top: 1px solid var(--hairline);
+  background: color-mix(in oklch, var(--color-danger), transparent 88%);
+  color: var(--color-danger-text);
+  font-size: 0.875rem;
 }
 
 .today-empty {
   color: var(--color-text-muted);
+  padding: 14px 16px;
+  border: 1px dashed var(--hairline);
+  border-radius: var(--radius-control);
+  font-size: 0.9375rem;
 }
 
 .section-heading {
-  font-size: 0.9375rem;
-  font-weight: 650;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--color-text-muted);
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .start-head {
@@ -251,7 +261,7 @@ function entryDuration(e: { start: number; end: number | null }): string {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .start-head .section-heading {
@@ -262,9 +272,11 @@ function entryDuration(e: { start: number; end: number | null }): string {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
   padding: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
@@ -277,28 +289,49 @@ function entryDuration(e: { start: number; end: number | null }): string {
 }
 
 .favorite-icons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 8px;
 }
 
 .favorite-icon {
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 10px;
-  background: var(--color-surface);
-  color: var(--accent, var(--color-text-muted));
+  gap: 7px;
+  min-height: 76px;
+  padding: 10px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface-sheen);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.8125rem;
   cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+}
+
+.favorite-glyph {
+  color: var(--accent, var(--color-text-muted));
+  transition: transform 120ms ease;
+}
+
+.favorite-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .favorite-icon:hover {
   border-color: var(--accent, var(--color-border));
-  background: color-mix(in oklch, var(--accent, var(--color-border)) 14%, var(--color-surface));
+  background: color-mix(in oklch, var(--accent, var(--color-border)) 12%, var(--color-surface));
+  transform: translateY(-1px);
+}
+
+.favorite-icon:hover .favorite-glyph {
+  transform: scale(1.08);
 }
 
 .favorite-grid {
@@ -317,7 +350,7 @@ function entryDuration(e: { start: number; end: number | null }): string {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
 .recent-list {
@@ -331,27 +364,43 @@ function entryDuration(e: { start: number; end: number | null }): string {
 .recent-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--color-surface-raised);
+  padding: 10px 12px 10px 14px;
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--accent, var(--hairline));
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
 }
 
 .recent-text {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
+  align-items: baseline;
+  gap: 4px 10px;
   min-width: 0;
 }
 
 .recent-label {
-  font-weight: 600;
+  font-weight: 650;
+}
+
+.recent-when {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
 }
 
 .recent-tag {
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--color-text-muted);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 1px 8px;
 }
 
 .recent-desc {
@@ -362,19 +411,26 @@ function entryDuration(e: { start: number; end: number | null }): string {
 .recent-duration {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  white-space: nowrap;
 }
 
 .recent-history {
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
-.recent-history a {
+.history-link {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
   color: var(--color-primary);
-  text-decoration: underline;
+  text-decoration: none;
   font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.history-link:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 480px) {

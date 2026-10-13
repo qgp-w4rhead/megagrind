@@ -45,6 +45,28 @@ ul {
   color-scheme: dark;
 }
 
+/* --- Design tokens: ledger/instrument-panel language ------------------ */
+:root {
+  --radius-panel: 14px;
+  --radius-control: 10px;
+  --hairline: var(--color-border-subtle);
+  --control-bg: color-mix(in oklch, var(--color-page), var(--color-surface) 45%);
+  --control-bg-hover: color-mix(in oklch, var(--color-page), var(--color-surface) 70%);
+  --surface-sheen: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--color-surface), var(--color-text) 4%),
+    var(--color-surface) 65%
+  );
+  --shadow-panel:
+    inset 0 1px 0 color-mix(in oklch, var(--color-text), transparent 93%),
+    0 16px 36px -26px rgb(3 9 20 / 0.85);
+  --page-glow: radial-gradient(
+    1100px 480px at 50% -12%,
+    color-mix(in oklch, var(--color-primary), transparent 91%),
+    transparent 68%
+  );
+}
+
 body.light {
   --accent-green: #166534;
   --accent-yellow: #eab308;
@@ -60,6 +82,10 @@ body.light {
   --color-border: #7f8ea4;
   --color-border-subtle: color-mix(in oklch, #7f8ea4, transparent 60%);
   --color-focus: #375ea8;
+  --control-bg: color-mix(in oklch, var(--color-page), var(--color-surface) 55%);
+  --shadow-panel:
+    inset 0 1px 0 rgb(255 255 255 / 0.7),
+    0 14px 30px -24px rgb(23 35 56 / 0.35);
   color-scheme: light;
 }
 
@@ -86,7 +112,8 @@ body {
 
 body {
   font-family: var(--font-ui);
-  background: var(--color-page);
+  background: var(--page-glow), var(--color-page);
+  background-attachment: fixed;
   color: var(--color-text);
 }
 
@@ -95,18 +122,182 @@ h2 {
   font-family: var(--font-display);
 }
 
+/* --- Shared page chrome ---------------------------------------------- */
+
+/* Mono micro-label: the "logbook index" eyebrow above each page title. */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.page-head {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-bottom: 4px;
+}
+
+.page-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.625rem, 1.2rem + 1.4vw, 2.125rem);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+}
+
+.page-title .page-title-sub {
+  font-family: var(--font-ui);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  letter-spacing: 0;
+}
+
+/* Raised surface card. */
+.panel {
+  background: var(--surface-sheen);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+}
+
+/* Stat strip: hairline-divided tabular figures. */
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.stats > * {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 14px 20px;
+  flex: 1 1 140px;
+}
+
+.stats > * + * {
+  border-left: 1px solid var(--hairline);
+}
+
+.stats dt,
+.stat-cap {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.stats dd,
+.stat-num {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.stat-sub {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Segmented control (period kind, view toggles). */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--control-bg);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+}
+
+.seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  min-width: 44px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.seg-btn:hover:not(.active) {
+  color: var(--color-text);
+}
+
+.seg-btn.active {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-weight: 650;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--color-text), transparent 90%),
+    0 2px 8px -4px rgb(0 0 0 / 0.5);
+}
+
+/* Quiet ghost icon button. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.icon-btn:hover:not(:disabled) {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
+
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* --- Buttons ---------------------------------------------------------- */
+
 .btn-primary,
 .btn-danger {
   --_button-surface: var(--color-primary);
-  background: var(--_button-surface);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--_button-surface), white 8%),
+    var(--_button-surface) 70%
+  );
   color: var(--color-on-primary);
   border: 1px solid var(--_button-surface);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   min-height: 44px;
-  padding: 0 16px;
+  padding: 0 18px;
   font: inherit;
-  font-weight: 600;
+  font-weight: 650;
   cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, white, transparent 72%),
+    0 8px 20px -12px color-mix(in oklch, var(--_button-surface), transparent 25%);
 }
 
 .btn-danger {
@@ -129,6 +320,12 @@ h2 {
   --_button-surface: color-mix(in oklch, var(--color-danger), black 10%);
 }
 
+.btn-primary:disabled,
+.btn-danger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 button {
   min-height: 44px;
   min-width: 44px;
@@ -137,21 +334,32 @@ button {
 .btn-action {
   min-height: 44px;
   padding: 0 14px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: transparent;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  background: color-mix(in oklch, var(--color-surface), transparent 30%);
   color: var(--color-text);
   font: inherit;
+  font-weight: 500;
   cursor: pointer;
 }
 
 .btn-action:hover {
   background: var(--color-surface-raised);
+  border-color: var(--color-border);
+}
+
+.btn-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 :where(a, button, input, select, textarea, summary):focus-visible {
   outline: 3px solid var(--color-focus);
   outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in oklch, var(--color-primary), transparent 65%);
 }
 
 .sr-only {
@@ -172,7 +380,7 @@ button {
   left: 8px;
   z-index: 100;
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--color-primary);
   color: var(--color-on-primary);
   transform: translateY(-200%);

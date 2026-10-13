@@ -89,14 +89,22 @@ function formatTime(ms: number): string {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-subtle);
-  border-left: 4px solid var(--accent, var(--color-border));
+  padding: 10px 16px 10px 14px;
+  border-radius: var(--radius-panel);
+  background:
+    linear-gradient(90deg, color-mix(in oklch, var(--accent, var(--color-surface)) 10%, transparent) 0%, transparent 34%),
+    var(--surface-sheen);
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--accent, var(--color-border));
+  box-shadow: var(--shadow-panel);
   color: var(--color-text);
   font-size: 0.9375rem;
   min-width: 0;
+}
+
+.now-bar.is-idle {
+  background: var(--surface-sheen);
+  border-left-color: var(--hairline);
 }
 
 .now-head {
@@ -137,8 +145,15 @@ function formatTime(ms: number): string {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 650;
+  font-size: 1.0625rem;
+  letter-spacing: 0.02em;
   flex-shrink: 0;
   white-space: nowrap;
+  color: var(--accent, var(--color-text));
+}
+
+.now-bar.is-idle .now-elapsed {
+  color: var(--color-text);
 }
 
 .now-actions {
@@ -150,7 +165,7 @@ function formatTime(ms: number): string {
 
 .now-actions .btn-action,
 .now-actions .btn-primary {
-  min-height: 44px;
+  min-height: 40px;
 }
 
 .now-summary {
@@ -169,7 +184,7 @@ function formatTime(ms: number): string {
   flex: 1 1 100%;
   margin: 0;
   font-size: 0.8125rem;
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 @media (max-width: 767px) {
@@ -177,7 +192,8 @@ function formatTime(ms: number): string {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     row-gap: 6px;
-    padding: 8px 10px;
+    padding: 8px 10px 8px 12px;
+    border-radius: 12px;
   }
 
   .now-bar.is-idle {

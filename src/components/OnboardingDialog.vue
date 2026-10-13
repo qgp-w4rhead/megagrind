@@ -4,6 +4,7 @@ import { useMegagrindStore } from '../stores/megagrind'
 import AppDialog from './AppDialog.vue'
 import { activityChoices, favoriteActivities, FAVORITE_LIMIT } from '../domain/activities'
 import { activityLabel } from '../domain/labels'
+import { getTrackerConfig } from '../config/trackers'
 import { goalCapacity, GOAL_POLICY_LABELS, validateGoals, type GoalPolicy } from '../domain/goals'
 import type { Goal, Settings, TrackerType } from '../types'
 
@@ -49,6 +50,10 @@ const chosenGoals = computed<Record<string, Goal>>(() => {
 const goalErrors = computed(() => validateGoals(chosenGoals.value))
 const capacity = computed(() => goalCapacity(chosenGoals.value))
 const lastStep = 3
+
+function accentOf(type: TrackerType): string {
+  return getTrackerConfig(type).accent
+}
 
 function toggleFavorite(type: TrackerType) {
   const next = new Set(chosenFavorites.value)
@@ -131,6 +136,7 @@ function finish() {
           type="button"
           class="onboarding-chip"
           :class="{ 'is-chosen': chosenFavorites.has(type) }"
+          :style="{ '--activity-accent': accentOf(type) }"
           :aria-pressed="chosenFavorites.has(type)"
           :disabled="!chosenFavorites.has(type) && chosenFavorites.size >= FAVORITE_LIMIT"
           @click="toggleFavorite(type)"
@@ -216,20 +222,37 @@ function finish() {
 .onboarding-steps {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
-  margin: 0 0 14px;
-  padding: 0;
+  gap: 4px 18px;
+  margin: 0 0 16px;
+  padding: 0 0 12px;
   list-style: none;
-  font-size: 0.8125rem;
+  counter-reset: step;
+  border-bottom: 1px solid var(--hairline);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--color-text-muted);
 }
+.onboarding-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.onboarding-steps li::before {
+  counter-increment: step;
+  content: counter(step, decimal-leading-zero);
+  font-size: 0.625rem;
+  opacity: 0.75;
+}
 .onboarding-steps li[aria-current='step'] {
-  color: var(--color-text);
+  color: var(--color-primary);
   font-weight: 650;
 }
 .onboarding-step p {
   margin: 0 0 12px;
   font-size: 0.9375rem;
+  line-height: 1.55;
 }
 .onboarding-field {
   border: none;
@@ -240,19 +263,35 @@ function finish() {
   gap: 8px;
 }
 .onboarding-field legend {
-  font-size: 0.8125rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
   color: var(--color-text-muted);
-  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
 }
 .onboarding-radio {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-height: 44px;
-  padding: 6px 12px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
   font-size: 0.875rem;
+  cursor: pointer;
+}
+.onboarding-radio:hover {
+  border-color: var(--color-border);
+}
+.onboarding-radio:has(input:checked) {
+  border-color: var(--color-primary);
+  background: color-mix(in oklch, var(--color-primary), transparent 88%);
+}
+.onboarding-radio input {
+  accent-color: var(--color-primary);
+  margin: 0;
 }
 .onboarding-row {
   display: flex;
@@ -261,16 +300,32 @@ function finish() {
   flex-wrap: wrap;
 }
 .onboarding-row label {
-  font-size: 0.875rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
   color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 .onboarding-row select,
 .onboarding-row input {
   min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
+  color: var(--color-text);
+  font: inherit;
   font-size: 1rem;
 }
+.onboarding-row select:focus,
+.onboarding-row input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
 .onboarding-row input {
-  width: 72px;
+  width: 76px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 .onboarding-chips {
   display: flex;
@@ -278,24 +333,33 @@ function finish() {
   gap: 8px;
 }
 .onboarding-chip {
+  --activity-accent: var(--color-border);
   min-height: 44px;
-  padding: 8px 14px;
+  padding: 8px 16px;
   border-radius: 999px;
-  border: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-raised);
+  border: 1px solid var(--hairline);
+  background: var(--control-bg);
   color: var(--color-text);
+  font: inherit;
   font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.onboarding-chip:hover:not(:disabled) {
+  border-color: var(--activity-accent);
 }
 .onboarding-chip.is-chosen {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  border-color: var(--activity-accent);
+  background: color-mix(in oklch, var(--activity-accent), transparent 82%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--activity-accent), transparent 55%);
 }
 .onboarding-chip:disabled:not(.is-chosen) {
-  opacity: 0.5;
+  opacity: 0.45;
 }
 .onboarding-hint {
-  font-size: 0.8125rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
 }
 .onboarding-goals {
@@ -307,6 +371,10 @@ function finish() {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
 }
 .onboarding-goal-toggle {
   display: flex;
@@ -314,14 +382,32 @@ function finish() {
   gap: 8px;
   flex: 1 1 240px;
   font-size: 0.875rem;
+  line-height: 1.45;
+}
+.onboarding-goal-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+  flex-shrink: 0;
 }
 .onboarding-hours {
   width: 84px;
   min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-mono);
   font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+.onboarding-hours:focus {
+  outline: none;
+  border-color: var(--color-primary);
 }
 .field-error {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: 0.8125rem;
 }
 .onboarding-footer {

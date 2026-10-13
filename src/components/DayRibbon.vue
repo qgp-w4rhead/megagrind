@@ -337,8 +337,11 @@ function clock(ms: number): string {
 }
 
 .section-heading {
-  font-size: 0.9375rem;
-  font-weight: 650;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--color-text-muted);
 }
 
@@ -411,10 +414,10 @@ function clock(ms: number): string {
 
 .ribbon-track {
   position: relative;
-  height: 28px;
-  border-radius: 6px;
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-border-subtle);
+  height: 30px;
+  border-radius: 8px;
+  background: var(--control-bg);
+  border: 1px solid var(--hairline);
   overflow: hidden;
 }
 
@@ -437,6 +440,7 @@ function clock(ms: number): string {
   width: 2px;
   margin-left: -1px;
   background: var(--color-text);
+  box-shadow: 0 0 6px color-mix(in oklch, var(--color-text), transparent 45%);
 }
 
 .ribbon-ruler {
@@ -490,14 +494,15 @@ function clock(ms: number): string {
   position: absolute;
   top: 8px;
   transform: translateX(-50%);
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-text);
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--color-text);
+  color: var(--color-page);
+  border: none;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 0.6875rem;
-  font-weight: 650;
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -505,7 +510,7 @@ function clock(ms: number): string {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
   padding: 0;
   font-size: 0.9375rem;
 }
@@ -513,13 +518,19 @@ function clock(ms: number): string {
 .ribbon-legend-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
+  padding: 5px 8px;
+  border-radius: 8px;
+}
+
+.ribbon-legend-item:hover {
+  background: var(--color-surface-raised);
 }
 
 .ribbon-swatch {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 3px;
 }
 

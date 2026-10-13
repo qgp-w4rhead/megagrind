@@ -18,7 +18,8 @@ import {
 } from '../domain/insights'
 import { GOAL_POLICY_LABELS } from '../domain/goals'
 import ProgressCheckDetails from './ProgressCheckDetails.vue'
-import { BarChart3, ChevronLeft, ChevronRight, Clock } from 'lucide-vue-next'
+import { getTrackerConfig } from '../config/trackers'
+import { ChevronLeft, ChevronRight, Clock } from 'lucide-vue-next'
 
 defineOptions({ name: 'InsightsDashboard' })
 
@@ -53,6 +54,7 @@ const totalMs = computed(() => totals.value.reduce((a, t) => a + t.totalMs, 0))
 const deltaMs = computed(() => totalMs.value - prevTotalMs.value)
 
 const activityName = (id: string) => activityLabel(id, store.settings.activities)
+const accentOf = (id: string) => getTrackerConfig(id as Parameters<typeof getTrackerConfig>[0]).accent
 
 const periodLabel = computed(() => {
   const s = new Date(range.value.start)
@@ -154,16 +156,16 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
 
 <template>
   <div class="dashboard">
-    <div class="dashboard-header">
-      <h2>Insights</h2>
-      <BarChart3 class="header-icon" />
-    </div>
+    <header class="page-head">
+      <p class="eyebrow" data-test="period-label">{{ periodLabel }} · {{ periodContext }}</p>
+      <h1 class="page-title">Insights</h1>
+    </header>
 
     <div class="period-nav" role="group" aria-label="Select period">
-      <div class="period-kind" role="group" aria-label="Period length">
+      <div class="seg period-kind" role="group" aria-label="Period length">
         <button
           type="button"
-          class="kind-btn"
+          class="seg-btn"
           :class="{ active: periodKind === 'day' }"
           :aria-pressed="periodKind === 'day'"
           data-test="period-day"
@@ -171,7 +173,7 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
         >Day</button>
         <button
           type="button"
-          class="kind-btn"
+          class="seg-btn"
           :class="{ active: periodKind === 'week' }"
           :aria-pressed="periodKind === 'week'"
           data-test="period-week"
@@ -179,7 +181,7 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
         >Week</button>
       </div>
       <div class="period-shift">
-        <button type="button" class="nav-btn" :aria-label="`Previous ${periodKind}`" data-test="period-prev" @click="prevPeriod">
+        <button type="button" class="icon-btn" :aria-label="`Previous ${periodKind}`" data-test="period-prev" @click="prevPeriod">
           <ChevronLeft class="nav-icon" />
         </button>
         <button
@@ -189,27 +191,26 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
           data-test="period-current"
           @click="goToCurrent"
         >Now</button>
-        <button type="button" class="nav-btn" :aria-label="`Next ${periodKind}`" data-test="period-next" :disabled="isCurrent" @click="nextPeriod">
+        <button type="button" class="icon-btn" :aria-label="`Next ${periodKind}`" data-test="period-next" :disabled="isCurrent" @click="nextPeriod">
           <ChevronRight class="nav-icon" />
         </button>
       </div>
     </div>
-    <p class="period-label" data-test="period-label">{{ periodLabel }} <span class="period-context">({{ periodContext }})</span></p>
 
-    <div class="summary-cards">
-      <div class="summary-card">
-        <Clock class="card-icon" />
+    <div class="summary-cards panel stats">
+      <div class="summary-card stat">
+        <Clock class="card-icon" aria-hidden="true" />
         <div class="card-content">
           <span class="card-label">Tracked</span>
-          <span class="card-value" data-test="tracked-total">{{ formatHours(coverage.trackedMs) }}h</span>
-          <span class="card-sub">{{ formatHours(coverage.untrackedMs) }}h untracked of {{ formatHours(coverage.elapsedMs) }}h elapsed</span>
+          <span class="card-value stat-num" data-test="tracked-total">{{ formatHours(coverage.trackedMs) }}h</span>
+          <span class="card-sub stat-sub">{{ formatHours(coverage.untrackedMs) }}h untracked of {{ formatHours(coverage.elapsedMs) }}h elapsed</span>
         </div>
       </div>
-      <div class="summary-card">
+      <div class="summary-card stat">
         <div class="card-content">
           <span class="card-label">vs previous {{ periodKind }}</span>
-          <span class="card-value" data-test="comparison-delta">{{ deltaMs >= 0 ? '+' : '−' }}{{ formatHours(deltaMs) }}h</span>
-          <span class="card-sub" data-test="comparison-label">
+          <span class="card-value stat-num" data-test="comparison-delta">{{ deltaMs >= 0 ? '+' : '−' }}{{ formatHours(deltaMs) }}h</span>
+          <span class="card-sub stat-sub" data-test="comparison-label">
             {{ comparison.complete ? 'full previous period' : 'same elapsed slice of the previous ' + periodKind }}
             — then {{ formatHours(prevTotalMs) }}h
           </span>
@@ -217,8 +218,8 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
       </div>
     </div>
 
-    <section v-if="goals.length" class="goals-section" aria-label="Goal progress">
-      <h3>Goals</h3>
+    <section v-if="goals.length" class="goals-section panel" aria-label="Goal progress">
+      <h3 class="section-title">Goals</h3>
       <div
         v-for="g in goals"
         :key="g.id"
@@ -239,8 +240,8 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
       No goals configured — totals below are plain records, not a plan. Goals can be set in Settings.
     </p>
 
-    <section class="totals-section" aria-label="Activity totals">
-      <h3>{{ periodKind === 'day' ? 'Today’s activities' : 'This week’s activities' }}</h3>
+    <section class="totals-section panel" aria-label="Activity totals">
+      <h3 class="section-title">{{ periodKind === 'day' ? 'Today’s activities' : 'This week’s activities' }}</h3>
       <div v-if="totals.length === 0" class="empty-note" data-test="no-totals">
         Nothing recorded in this period yet.
       </div>
@@ -251,11 +252,11 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
       >
         <div class="bar-label">
           <button type="button" class="link-btn" :data-test="`total-link-${t.type}`" @click="openHistory(t.type)">
-            {{ activityName(t.type) }}
+            <span class="bar-dot" :style="{ background: accentOf(t.type) }" aria-hidden="true" />{{ activityName(t.type) }}
           </button>
         </div>
         <div class="bar-track" role="img" :aria-label="`${activityName(t.type)}: ${formatHours(t.totalMs)}h`">
-          <div class="bar-fill" :style="{ width: (t.totalMs / maxTotalMs) * 100 + '%' }" />
+          <div class="bar-fill" :style="{ width: (t.totalMs / maxTotalMs) * 100 + '%', background: accentOf(t.type) }" />
         </div>
         <div class="bar-values">
           <span class="bar-current">{{ formatHours(t.totalMs) }}h</span>
@@ -266,23 +267,23 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
       </div>
     </section>
 
-    <section v-if="categories.length" class="totals-section" aria-label="Category breakdown">
-      <h3>Category breakdown</h3>
+    <section v-if="categories.length" class="totals-section panel" aria-label="Category breakdown">
+      <h3 class="section-title">Category breakdown</h3>
       <div v-for="cat in categories" :key="cat.key" class="category-row">
         <button type="button" class="link-btn" :data-test="`cat-link-${cat.type}-${cat.category}`" @click="openHistory(cat.type, cat.category)">
-          {{ activityName(cat.type) }} – {{ cat.category.charAt(0).toUpperCase() + cat.category.slice(1) }}
+          <span class="bar-dot" :style="{ background: accentOf(cat.type) }" aria-hidden="true" />{{ activityName(cat.type) }} – {{ cat.category.charAt(0).toUpperCase() + cat.category.slice(1) }}
         </button>
         <span class="cat-hours">{{ formatHours(cat.totalMs) }}h</span>
       </div>
     </section>
 
-    <section class="checks-section" aria-label="Progress checks for period">
-      <h3>Checks in this {{ periodKind }}</h3>
+    <section class="checks-section panel" aria-label="Progress checks for period">
+      <h3 class="section-title">Checks in this {{ periodKind }}</h3>
       <p v-if="!checksAvailable" class="empty-note" data-test="checks-unavailable">
         Check history isn't available for this period — recording started
         {{ store.progressHistoryStartedAt === null ? 'when checks were first answered' : new Date(store.progressHistoryStartedAt).toLocaleDateString() }}.
       </p>
-      <dl v-else class="progress-counts" data-test="check-counts">
+      <dl v-else class="progress-counts stats" data-test="check-counts">
         <div><dt>Made progress</dt><dd>{{ checkCounts.progress }}</dd></div>
         <div><dt>Blocked</dt><dd>{{ checkCounts.blocked }}</dd></div>
         <div><dt>Snoozed</dt><dd>{{ checkCounts.snoozed }}</dd></div>
@@ -297,30 +298,13 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
 
 <style scoped>
 .dashboard {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 1.5rem;
-}
-
-.dashboard-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-}
-
-.dashboard-header h2 {
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.header-icon {
-  width: 24px;
-  height: 24px;
-  color: var(--accent-purple);
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  max-width: 780px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .period-nav {
@@ -331,56 +315,10 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
   flex-wrap: wrap;
 }
 
-.period-kind {
-  display: inline-flex;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.kind-btn {
-  min-height: 44px;
-  padding: 0 16px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 0.875rem;
-  cursor: pointer;
-}
-
-.kind-btn.active {
-  background: var(--accent-purple);
-  color: var(--bg-primary);
-  font-weight: 600;
-}
-
 .period-shift {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-}
-
-.nav-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
-  min-height: 44px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.nav-btn:hover:not(:disabled) {
-  color: var(--text-primary);
-}
-
-.nav-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
 }
 
 .nav-icon {
@@ -389,92 +327,77 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
 }
 
 .current-btn {
-  min-height: 44px;
-  padding: 0 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
   background: transparent;
-  color: var(--text-primary);
+  color: var(--color-primary);
   font: inherit;
   font-size: 0.8125rem;
+  font-weight: 650;
   cursor: pointer;
 }
 
-.period-label {
-  margin: 0.5rem 0 1.25rem;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.period-context {
-  font-weight: 400;
-  color: var(--text-muted);
+.current-btn:hover {
+  background: var(--color-surface-raised);
+  border-color: var(--color-border);
 }
 
 .summary-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  overflow: hidden;
 }
 
 .summary-card {
-  display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: 1rem;
-  padding: 1rem;
-  background-color: var(--bg-tertiary);
-  border-radius: 8px;
+  gap: 14px;
 }
 
 .card-icon {
-  width: 32px;
-  height: 32px;
-  color: var(--accent-purple);
+  width: 26px;
+  height: 26px;
+  color: var(--color-primary);
+  flex-shrink: 0;
 }
 
 .card-content {
   display: flex;
   flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
 
 .card-label {
-  font-size: 0.75rem;
-  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.card-value {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
-.card-sub {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
 }
 
 .goals-section,
 .totals-section,
 .checks-section {
-  margin-bottom: 1.5rem;
+  padding: 16px 20px;
 }
 
-.goals-section h3,
-.totals-section h3,
-.checks-section h3 {
-  margin: 0 0 0.75rem;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--accent-purple);
+.section-title {
+  margin: 0 0 14px;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
 }
 
 .goal-row {
-  margin-bottom: 0.875rem;
+  margin-bottom: 14px;
+}
+
+.goal-row:last-child {
+  margin-bottom: 0;
 }
 
 .goal-head {
@@ -486,19 +409,22 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
 
 .goal-name {
   font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-weight: 650;
+  color: var(--color-text);
 }
 
 .goal-policy {
-  font-size: 0.75rem;
-  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
 }
 
 .goal-line {
-  margin: 0.125rem 0 0;
+  margin: 4px 0 0;
   font-size: 0.8125rem;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
 }
 
@@ -507,17 +433,17 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
 }
 
 .bar-track {
-  height: 8px;
-  margin-top: 4px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
+  height: 6px;
+  margin-top: 6px;
+  background: var(--control-bg);
+  border-radius: 3px;
   overflow: hidden;
 }
 
 .bar-fill {
   height: 100%;
-  border-radius: 4px;
-  background: var(--accent-purple);
+  border-radius: 3px;
+  background: var(--color-primary);
   transition: width 0.3s ease;
 }
 
@@ -532,24 +458,38 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
 .chart-bar {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  margin-bottom: 0.75rem;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.chart-bar:last-child {
+  margin-bottom: 0;
 }
 
 .bar-label {
   font-size: 0.875rem;
-  color: var(--text-primary);
+  color: var(--color-text);
 }
 
 .link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   border: none;
   background: none;
   padding: 4px 0;
   font: inherit;
-  color: var(--accent-purple);
+  color: var(--color-primary);
   cursor: pointer;
   text-align: left;
   min-height: 32px;
+}
+
+.bar-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .link-btn:hover {
@@ -563,13 +503,14 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
 }
 
 .bar-current {
-  color: var(--text-primary);
-  font-weight: 600;
+  color: var(--color-text);
+  font-weight: 650;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
 .bar-allowance {
-  color: var(--text-muted);
+  color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
 }
 
@@ -578,51 +519,43 @@ const maxTotalMs = computed(() => Math.max(1, ...totals.value.map((t) => t.total
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 4px 0;
+  padding: 8px 0;
+}
+
+.category-row + .category-row {
+  border-top: 1px solid var(--hairline);
 }
 
 .cat-hours {
+  font-family: var(--font-mono);
   font-size: 0.875rem;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
 }
 
 .empty-note {
   margin: 0;
   font-size: 0.875rem;
-  color: var(--text-muted);
+  color: var(--color-text-muted);
 }
 
 .progress-counts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 24px;
-  margin: 0;
-}
-
-.progress-counts dt {
-  color: var(--text-muted);
-  font-size: 0.875rem;
-}
-
-.progress-counts dd {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 1.25rem;
-  font-variant-numeric: tabular-nums;
+  margin: -2px -20px -16px;
 }
 
 @media (max-width: 480px) {
-  .dashboard {
-    padding: 0.875rem;
+  .goals-section,
+  .totals-section,
+  .checks-section {
+    padding: 14px 16px;
   }
 
-  .dashboard-header h2 {
-    font-size: 1rem;
+  .progress-counts {
+    margin: -2px -16px -14px;
   }
 
-  .summary-cards {
-    grid-template-columns: 1fr;
+  .summary-card {
+    flex-basis: 100%;
   }
 }
 </style>

@@ -187,6 +187,10 @@ function selectDay(day: DayCell) {
   }
 }
 
+function isToday(date: Date | null): boolean {
+  return date !== null && dayRange(date.getTime()).start === dayRange(store.now).start
+}
+
 function dayAriaLabel(date: Date, totalMs: number): string {
   const day = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
   return totalMs > 0 ? `${day}, ${formatDayTotal(totalMs)} recorded` : `${day}, nothing recorded`
@@ -232,35 +236,35 @@ function deleteEntry(entryId: string) {
 
 <template>
   <div class="history-view">
-    <div class="history-panel">
+    <div class="history-panel panel">
       <div class="history-header">
-        <div class="header-left">
-          <Calendar class="header-icon" />
-          <h2>History</h2>
-        </div>
-        <button type="button" class="close-btn" aria-label="Close History" @click="close">
+        <header class="page-head">
+          <p class="eyebrow">Every recorded entry</p>
+          <h1 class="page-title">History</h1>
+        </header>
+        <button type="button" class="icon-btn close-btn" aria-label="Close History" @click="close">
           <X class="close-icon" />
         </button>
       </div>
 
       <div class="history-toolbar">
-        <div class="view-toggle" role="group" aria-label="History view">
+        <div class="seg view-toggle" role="group" aria-label="History view">
           <button
             type="button"
-            class="kind-btn"
+            class="seg-btn"
             :class="{ active: viewMode === 'list' }"
             :aria-pressed="viewMode === 'list'"
             data-test="view-list"
             @click="viewMode = 'list'"
-          ><List :size="16" aria-hidden="true" /> List</button>
+          ><List :size="15" aria-hidden="true" /> List</button>
           <button
             type="button"
-            class="kind-btn"
+            class="seg-btn"
             :class="{ active: viewMode === 'calendar' }"
             :aria-pressed="viewMode === 'calendar'"
             data-test="view-calendar"
             @click="viewMode = 'calendar'"
-          ><Calendar :size="16" aria-hidden="true" /> Month</button>
+          ><Calendar :size="15" aria-hidden="true" /> Month</button>
         </div>
       </div>
 
@@ -308,6 +312,7 @@ function deleteEntry(entryId: string) {
             :key="entry.id"
             class="entry-item"
             data-test="history-row"
+            :style="{ '--accent': dotColor(entry.type) }"
           >
             <div class="entry-left">
               <div class="entry-top-row">
@@ -338,11 +343,11 @@ function deleteEntry(entryId: string) {
 
       <template v-if="viewMode === 'calendar'">
       <div class="calendar-controls">
-        <button type="button" class="nav-btn" aria-label="Previous month" @click="previousMonth">
+        <button type="button" class="icon-btn" aria-label="Previous month" @click="previousMonth">
           <ChevronLeft class="nav-icon" />
         </button>
         <span class="month-label">{{ monthName }}</span>
-        <button type="button" class="nav-btn" aria-label="Next month" @click="nextMonth">
+        <button type="button" class="icon-btn" aria-label="Next month" @click="nextMonth">
           <ChevronRight class="nav-icon" />
         </button>
       </div>
@@ -364,7 +369,8 @@ function deleteEntry(entryId: string) {
           :class="{
             'has-data': day.types.length > 0,
             'selected': selectedDate && day.date && selectedDate.getTime() === day.date.getTime(),
-            'empty': !day.day
+            'empty': !day.day,
+            'is-today': isToday(day.date)
           }"
           :data-test="day.day ? `day-${day.day}` : 'day-blank'"
           :disabled="!day.day"
@@ -394,7 +400,7 @@ function deleteEntry(entryId: string) {
       <div v-if="selectedDate && viewMode === 'calendar'" class="day-details">
         <div class="day-details-header">
           <h3>{{ selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) }}</h3>
-          <button class="close-details-btn" @click="selectedDate = null">
+          <button type="button" class="icon-btn close-details-btn" aria-label="Close day details" @click="selectedDate = null">
             <X class="close-icon" />
           </button>
         </div>
@@ -429,6 +435,7 @@ function deleteEntry(entryId: string) {
               class="entry-item"
               data-test="timeline-entry"
               :data-entry-id="item.slice.entry.id"
+              :style="{ '--accent': dotColor(item.slice.entry.type) }"
             >
               <div class="entry-left">
                 <div class="entry-top-row">
@@ -467,61 +474,28 @@ function deleteEntry(entryId: string) {
 .history-view {
   display: flex;
   justify-content: center;
-  padding: 1rem;
+  min-width: 0;
 }
 
 .history-panel {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  max-width: 720px;
+  max-width: 780px;
   width: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .history-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 1.5rem;
-  border-bottom: 1px solid var(--border-color);
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--hairline);
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.header-icon {
-  width: 24px;
-  height: 24px;
-  color: var(--accent-purple);
-}
-
-.history-header h2 {
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.close-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.5rem;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: 8px;
-  transition: color 0.2s ease;
-}
-
-.close-btn:hover {
-  color: var(--text-primary);
+.history-header .page-head {
+  padding-bottom: 0;
 }
 
 .close-icon {
@@ -529,29 +503,27 @@ function deleteEntry(entryId: string) {
   height: 20px;
 }
 
+.history-toolbar {
+  display: flex;
+  justify-content: center;
+  padding: 14px 20px 0;
+}
+
+.view-toggle {
+  width: 100%;
+  max-width: 320px;
+}
+
+.view-toggle .seg-btn {
+  flex: 1;
+}
+
 .calendar-controls {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 1.5rem;
-  padding: 1rem;
-}
-
-.nav-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.5rem;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: 6px;
-  transition: color 0.2s ease;
-}
-
-.nav-btn:hover {
-  color: var(--text-primary);
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 14px 20px 10px;
 }
 
 .nav-icon {
@@ -560,24 +532,29 @@ function deleteEntry(entryId: string) {
 }
 
 .month-label {
-  font-size: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
   font-weight: 600;
-  color: var(--text-primary);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text);
 }
 
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 0.25rem;
-  padding: 0 1.5rem;
+  gap: 4px;
+  padding: 0 20px 8px;
 }
 
 .calendar-day-header {
   text-align: center;
   padding: 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
   text-transform: uppercase;
 }
 
@@ -585,7 +562,7 @@ function deleteEntry(entryId: string) {
   aspect-ratio: 1;
   min-width: 44px;
   min-height: 44px;
-  border: none;
+  border: 1px solid transparent;
   font: inherit;
   background: transparent;
   display: flex;
@@ -593,18 +570,23 @@ function deleteEntry(entryId: string) {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
   font-size: 0.875rem;
-  color: var(--text-primary);
+  color: var(--color-text);
   padding: 2px;
   overflow: hidden;
 }
 
+.day-number {
+  font-variant-numeric: tabular-nums;
+}
+
 .day-total {
-  font-size: 0.6rem;
-  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
@@ -618,8 +600,8 @@ function deleteEntry(entryId: string) {
 }
 
 .day-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -628,63 +610,72 @@ function deleteEntry(entryId: string) {
   cursor: default;
 }
 
-.calendar-day:hover:not(.empty) {
-  background: var(--bg-tertiary);
+.calendar-day:hover:not(.empty):not(.selected) {
+  background: var(--color-surface-raised);
 }
 
 .calendar-day.has-data {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--accent-purple);
+  background: var(--control-bg);
+  border-color: var(--hairline);
+}
+
+.calendar-day.has-data:hover:not(.selected) {
+  border-color: var(--color-border);
+}
+
+.calendar-day.is-today:not(.selected) .day-number {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.calendar-day.is-today:not(.selected) {
+  border-color: color-mix(in oklch, var(--color-primary), transparent 55%);
 }
 
 .calendar-day.selected {
-  background: var(--accent-purple);
-  color: var(--bg-primary);
-  font-weight: 600;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: 650;
+  border-color: var(--color-primary);
+}
+
+.calendar-day.selected .day-total {
+  color: var(--color-on-primary);
+  opacity: 0.8;
 }
 
 .day-details {
   flex: 1;
-  padding: 1.5rem;
-  border-top: 1px solid var(--border-color);
+  padding: 18px 20px 20px;
+  border-top: 1px solid var(--hairline);
   overflow-y: auto;
+  background: color-mix(in oklch, var(--color-page), transparent 50%);
 }
 
 .day-details-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 1rem;
+  gap: 10px;
+  margin-bottom: 0.75rem;
 }
 
 .day-details-header h3 {
   margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 650;
+  color: var(--color-text);
 }
 
-.close-details-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.25rem;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: 4px;
-  transition: color 0.2s ease;
-}
-
-.close-details-btn:hover {
-  color: var(--text-primary);
+.day-actions {
+  margin-bottom: 0.875rem;
 }
 
 .no-entries {
   text-align: center;
   padding: 2rem;
-  color: var(--text-muted);
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 
@@ -699,9 +690,11 @@ function deleteEntry(entryId: string) {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 0.75rem;
-  background: var(--bg-tertiary);
-  border-radius: 6px;
+  padding: 0.625rem 0.75rem;
+  background: var(--color-surface);
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--accent, var(--hairline));
+  border-radius: var(--radius-control);
   gap: 1rem;
 }
 
@@ -721,25 +714,28 @@ function deleteEntry(entryId: string) {
 }
 
 .entry-time {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
 }
 
 .entry-label {
-  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
   font-weight: 600;
-  color: var(--accent-purple);
+  color: var(--accent, var(--color-primary));
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  background: rgba(167, 139, 250, 0.15);
-  padding: 0.125rem 0.5rem;
-  border-radius: 4px;
+  letter-spacing: 0.08em;
+  background: color-mix(in oklch, var(--accent, var(--color-primary)) 14%, transparent);
+  border: 1px solid color-mix(in oklch, var(--accent, var(--color-primary)) 30%, transparent);
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
 }
 
 .entry-description {
   font-size: 0.875rem;
-  color: var(--text-primary);
+  color: var(--color-text);
   word-break: break-word;
   line-height: 1.4;
 }
@@ -747,115 +743,93 @@ function deleteEntry(entryId: string) {
 .entry-right {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .entry-duration {
+  font-family: var(--font-mono);
   font-size: 0.875rem;
-  color: var(--accent-green);
-  font-weight: 600;
+  color: var(--color-text);
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .gap-item {
   background: transparent;
-  border: 1px dashed var(--border-color);
-  opacity: 0.7;
+  border: 1px dashed var(--hairline);
+  border-left-style: dashed;
+  opacity: 0.75;
 }
 
 .gap-label {
-  color: var(--text-muted);
+  color: var(--color-text-muted);
   background: transparent;
-  border: 1px dashed var(--border-color);
+  border: 1px dashed var(--hairline);
 }
 
 .gap-duration {
-  color: var(--text-muted);
+  color: var(--color-text-muted);
 }
 
 .delete-entry-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.25rem;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0.4rem;
   background: transparent;
-  border: none;
-  color: #ef4444;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  color: var(--color-danger-text);
   cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.2s ease;
+  transition: background 0.15s ease;
   flex-shrink: 0;
 }
 
 .delete-entry-btn:hover {
-  background: rgba(239, 68, 68, 0.15);
+  background: color-mix(in oklch, var(--color-danger), transparent 80%);
+  border-color: color-mix(in oklch, var(--color-danger), transparent 60%);
 }
 
 .delete-icon {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 .day-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1rem;
-  background: var(--bg-tertiary);
-  border-radius: 8px;
+  padding: 0.875rem 1rem;
+  background: var(--control-bg);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
 }
 
 .summary-label {
-  font-size: 0.875rem;
-  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
 }
 
 .summary-value {
+  font-family: var(--font-mono);
   font-size: 1rem;
   font-weight: 700;
-  color: var(--accent-purple);
+  color: var(--color-primary);
   font-variant-numeric: tabular-nums;
-}
-.history-toolbar {
-  display: flex;
-  justify-content: center;
-  padding: 0.75rem 1rem 0;
-}
-
-.view-toggle {
-  display: inline-flex;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.kind-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  padding: 0 16px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 0.875rem;
-  cursor: pointer;
-}
-
-.kind-btn.active {
-  background: var(--accent-purple);
-  color: var(--bg-primary);
-  font-weight: 600;
 }
 
 .filter-bar {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 0.75rem 1.5rem;
-  border-bottom: 1px solid var(--border-color);
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--hairline);
 }
 
 .filter-field {
@@ -868,30 +842,41 @@ function deleteEntry(entryId: string) {
 
 .filter-icon {
   position: absolute;
-  left: 10px;
-  color: var(--text-muted);
+  left: 12px;
+  color: var(--color-text-muted);
   pointer-events: none;
 }
 
 .filter-input {
   width: 100%;
-  min-height: 44px;
-  padding: 0 10px 0 30px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  min-height: 40px;
+  padding: 0 10px 0 32px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
+  color: var(--color-text);
   font: inherit;
   font-size: 1rem;
 }
 
+.filter-input:hover,
+.filter-select:hover {
+  border-color: var(--color-border);
+}
+
+.filter-input:focus,
+.filter-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
 .filter-select {
-  min-height: 44px;
-  padding: 0 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
+  color: var(--color-text);
   font: inherit;
   font-size: 0.875rem;
 }
@@ -902,12 +887,12 @@ function deleteEntry(entryId: string) {
 }
 
 .clear-btn {
-  min-height: 44px;
+  min-height: 40px;
   font-size: 0.8125rem;
 }
 
 .list-view {
-  padding: 0.75rem 1.5rem 1.5rem;
+  padding: 12px 20px 20px;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -918,7 +903,7 @@ function deleteEntry(entryId: string) {
   background: none;
   padding: 4px 0;
   font: inherit;
-  color: var(--accent-purple);
+  color: var(--color-primary);
   cursor: pointer;
   text-align: left;
 }
@@ -928,7 +913,8 @@ function deleteEntry(entryId: string) {
 }
 
 .entry-day-link {
-  font-size: 0.875rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -936,7 +922,6 @@ function deleteEntry(entryId: string) {
 @media (max-width: 480px) {
   .history-view {
     margin-inline: -14px;
-    padding: 0;
   }
 
   .filter-bar,
@@ -951,18 +936,18 @@ function deleteEntry(entryId: string) {
   }
 
   .calendar-grid {
-    gap: 0;
-    padding: 0;
+    gap: 2px;
+    padding: 0 8px 6px;
     grid-template-columns: repeat(7, minmax(0, 1fr));
   }
 
   .calendar-controls {
     gap: 0.75rem;
-    padding: 0.75rem;
+    padding: 10px 12px;
   }
 
   .day-details {
-    padding: 1rem;
+    padding: 14px 16px 16px;
   }
 
   .calendar-day {

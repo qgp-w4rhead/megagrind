@@ -21,20 +21,22 @@ const destinations = [
 <style scoped>
 .app-nav {
   display: flex;
-  gap: 4px;
+  gap: 2px;
 }
 
 .app-nav-link {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   min-height: 44px;
   min-width: 44px;
-  padding: 6px 12px;
-  border-radius: 8px;
+  padding: 6px 13px;
+  border-radius: var(--radius-control);
   color: var(--color-text-muted);
   text-decoration: none;
   font-size: 0.875rem;
+  transition: color 120ms ease, background 120ms ease;
 }
 
 .app-nav-link:hover {
@@ -43,9 +45,20 @@ const destinations = [
 }
 
 .app-nav-link[aria-current='page'] {
-  color: var(--color-text);
+  color: var(--color-primary);
   font-weight: 650;
-  box-shadow: inset 0 -3px 0 var(--color-primary);
+}
+
+.app-nav-link[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-primary);
+  box-shadow: 0 0 8px color-mix(in oklch, var(--color-primary), transparent 40%);
 }
 
 @media (max-width: 767px) {
@@ -59,26 +72,34 @@ const destinations = [
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0;
     padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
-    background: var(--color-surface);
-    border-top: 1px solid var(--color-border-subtle);
+    background: var(--surface-sheen);
+    border-top: 1px solid var(--hairline);
+    box-shadow: 0 -12px 28px -18px rgb(0 0 0 / 0.6);
   }
 
   .app-nav-link {
     flex-direction: column;
     justify-content: center;
-    gap: 2px;
+    gap: 3px;
     min-width: 0;
-    padding: 6px 2px;
-    font-size: 0.75rem;
+    padding: 7px 2px;
+    font-size: 0.6875rem;
     text-align: center;
+    border-radius: 8px;
   }
 
-  .app-nav-link[aria-current='page'] {
-    box-shadow: inset 0 3px 0 var(--color-primary);
+  .app-nav-link[aria-current='page']::after {
+    left: 50%;
+    right: auto;
+    top: 1px;
+    bottom: auto;
+    width: 22px;
+    transform: translateX(-50%);
   }
 
   .app-nav-label {
     overflow-wrap: anywhere;
+    letter-spacing: 0.02em;
   }
 }
 </style>

@@ -86,10 +86,11 @@ function formatEntryTime(entry: TimeEntry): string {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  border-radius: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
   font-size: 0.875rem;
-  background: var(--color-surface-raised);
+  background: var(--control-bg);
   min-width: 0;
 }
 
@@ -132,14 +133,20 @@ function formatEntryTime(entry: TimeEntry): string {
   justify-content: center;
   min-width: 44px;
   min-height: 44px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
   background: transparent;
-  color: var(--color-text);
+  color: var(--color-text-muted);
   cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.icon-action:hover {
+  background: var(--control-bg-hover);
+  color: var(--color-text);
 }
 
 .icon-danger:hover {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 </style>

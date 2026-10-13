@@ -57,11 +57,16 @@ function stopFromPrompt() {
 .prompt-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   color: var(--color-text);
 }
 
 .prompt-card p {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
   color: var(--color-text);
 }
 
